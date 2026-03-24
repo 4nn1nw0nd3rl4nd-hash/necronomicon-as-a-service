@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import jsPDF from "jspdf";
+import { supabase } from "../supabaseClient";
 
 function Character() {
   const emptyCharacter = {
@@ -20,60 +21,105 @@ function Character() {
 
   const [character, setCharacter] = useState(emptyCharacter);
   const [characters, setCharacters] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // 🔄 Laden beim Start
   useEffect(() => {
-    const data = JSON.parse(localStorage.getItem("coc_characters")) || [];
-    setCharacters(data);
+    fetchCharacters();
   }, []);
+
+  // 🔄 Alle Charaktere laden
+  const fetchCharacters = async () => {
+    setLoading(true);
+    setError(null);
+    const { data, error } = await supabase
+      .from("characters")
+      .select("*")
+      .order("id", { ascending: true });
+    if (error) setError(error.message);
+    else setCharacters(data);
+    setLoading(false);
+  };
 
   // ✏️ Input ändern
   const handleChange = (e) => {
-    setCharacter({
-      ...character,
-      [e.target.name]: e.target.value
-    });
+    const value = e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    setCharacter({ ...character, [e.target.name]: value });
   };
 
   // 💾 Speichern / Aktualisieren
-  const saveCharacter = () => {
-    let updatedCharacters;
+  const saveCharacter = async () => {
+    setError(null);
+    try {
+      if (character.id) {
+        // Update
+        const { error } = await supabase
+          .from("characters")
+          .update({
+            name: character.name,
+            beruf: character.beruf,
+            str: character.str,
+            dex: character.dex,
+            int: character.int,
+            con: character.con,
+            app: character.app,
+            pow: character.pow,
+            siz: character.siz,
+            edu: character.edu,
+            hp: character.hp,
+            san: character.san
+          })
+          .eq("id", character.id);
+        if (error) throw error;
+      } else {
+        // Insert (ohne id!)
+        const { data, error } = await supabase
+          .from("characters")
+          .insert([{
+            name: character.name,
+            beruf: character.beruf,
+            str: character.str,
+            dex: character.dex,
+            int: character.int,
+            con: character.con,
+            app: character.app,
+            pow: character.pow,
+            siz: character.siz,
+            edu: character.edu,
+            hp: character.hp,
+            san: character.san
+          }])
+          .select();
+        if (error) throw error;
+        if (data && data[0]) setCharacter({ ...character, id: data[0].id });
+      }
 
-    if (character.id) {
-      // ✏️ bearbeiten
-      updatedCharacters = characters.map((c) =>
-        c.id === character.id ? character : c
-      );
-    } else {
-      // ➕ neu
-      const newCharacter = {
-        ...character,
-        id: Date.now()
-      };
-      updatedCharacters = [...characters, newCharacter];
+      fetchCharacters();
+      if (!character.id) setCharacter(emptyCharacter); // Form nur leeren bei neuem Charakter
+    } catch (err) {
+      setError(err.message);
     }
-
-    localStorage.setItem("coc_characters", JSON.stringify(updatedCharacters));
-    setCharacters(updatedCharacters);
-    setCharacter(emptyCharacter);
-  };
-
-  // 📂 Laden eines Charakters
-  const loadCharacter = (char) => {
-    setCharacter(char);
   };
 
   // ❌ Löschen
-  const deleteCharacter = (id) => {
-    const updated = characters.filter((c) => c.id !== id);
-    localStorage.setItem("coc_characters", JSON.stringify(updated));
-    setCharacters(updated);
+  const deleteCharacter = async (id) => {
+    setError(null);
+    const { error } = await supabase
+      .from("characters")
+      .delete()
+      .eq("id", id);
+    if (error) setError(error.message);
+    else fetchCharacters();
+  };
+
+  // 📂 Laden eines Charakters in das Formular
+  const loadCharacter = (char) => {
+    setCharacter(char);
   };
 
   // 🧾 PDF Export
   const exportPDF = () => {
     const doc = new jsPDF();
-
     doc.setFontSize(16);
     doc.text("Call of Cthulhu Charakterbogen", 10, 10);
 
@@ -82,18 +128,15 @@ function Character() {
     doc.text(`Beruf: ${character.beruf}`, 10, 30);
 
     doc.text("Attribute:", 10, 45);
-    doc.text(`STR: ${character.str}`, 10, 55);
-    doc.text(`DEX: ${character.dex}`, 10, 65);
-    doc.text(`INT: ${character.int}`, 10, 75);
-    doc.text(`CON: ${character.con}`, 10, 85);
-    doc.text(`APP: ${character.app}`, 10, 95);
-    doc.text(`POW: ${character.pow}`, 10, 105);
-    doc.text(`SIZ: ${character.siz}`, 10, 115);
-    doc.text(`EDU: ${character.edu}`, 10, 125);
+    let y = 55;
+    ["str","dex","int","con","app","pow","siz","edu"].forEach(attr => {
+      doc.text(`${attr.toUpperCase()}: ${character[attr]}`, 10, y);
+      y += 10;
+    });
 
-    doc.text("Status:", 10, 140);
-    doc.text(`HP: ${character.hp}`, 10, 150);
-    doc.text(`SAN: ${character.san}`, 10, 160);
+    doc.text("Status:", 10, y + 10);
+    doc.text(`HP: ${character.hp}`, 10, y + 20);
+    doc.text(`SAN: ${character.san}`, 10, y + 30);
 
     doc.save(`${character.name || "character"}.pdf`);
   };
@@ -102,12 +145,15 @@ function Character() {
     <div style={{ padding: "20px" }}>
       <h2>🧙 CoC Charakterbogen</h2>
 
+      {loading && <p>Lade Charaktere...</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
+
       {/* FORMULAR */}
       <input name="name" placeholder="Name" value={character.name} onChange={handleChange} />
       <input name="beruf" placeholder="Beruf" value={character.beruf} onChange={handleChange} />
 
       <h3>Attribute</h3>
-      {["str","dex","int","con","app","pow","siz","edu"].map((attr) => (
+      {["str","dex","int","con","app","pow","siz","edu"].map(attr => (
         <input
           key={attr}
           name={attr}
@@ -131,7 +177,7 @@ function Character() {
       {/* LISTE */}
       <h3>📚 Gespeicherte Charaktere</h3>
       <ul>
-        {characters.map((c) => (
+        {characters.map(c => (
           <li key={c.id}>
             {c.name} ({c.beruf})
             <button onClick={() => loadCharacter(c)}>Laden</button>
