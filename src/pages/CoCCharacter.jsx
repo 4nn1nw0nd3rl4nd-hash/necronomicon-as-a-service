@@ -1,8 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
-import jsPDF from "jspdf";
+import PersonalInfo from "./PersonalInfo";
+import Attributes from "./Attributes";
+import Skills from "./Skills";
+import CombatBlock from "./CombatBlock";
+import Background from "./Background";
+import { exportPDF } from "./PDFExport";
 
-const skills = [
+const skillsList = [
   "accounting","anthropology","appraise","archaeology",
   "charm","climb","credit_rating","cthulhu_mythos",
   "disguise","drive","electrical_repair",
@@ -42,10 +47,10 @@ const emptyCharacter = {
   rifle_shotgun: 25
 };
 
-// Initialize Skills
-skills.forEach(s => emptyCharacter[s] = 0);
+// Initialisiere Skills
+skillsList.forEach(s => emptyCharacter[s] = 0);
 
-function CoCCharacter() {
+export default function CoCCharacter() {
   const [character, setCharacter] = useState(emptyCharacter);
   const [characters, setCharacters] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -68,31 +73,18 @@ function CoCCharacter() {
     setCharacter(prev => ({ ...prev, [name]: val }));
   };
 
-  const calcHP = Math.floor((character.con + character.siz) / 10);
-  const calcSAN = character.pow;
-  const calcLuck = character.pow;
-  const calcMP = Math.floor(character.pow / 5);
-
-  const calcMOV = () => {
-    if (character.dex > character.siz && character.str > character.siz) return 9;
-    if (character.dex < character.siz && character.str < character.siz) return 7;
-    return 8;
-  };
-
   const saveCharacter = async () => {
     try {
       const { id, ...data } = character;
-
-      // "" → null fix
       Object.keys(data).forEach(k => { if (data[k] === "") data[k] = null; });
 
       const payload = {
         ...data,
-        hitpoints: calcHP,
-        sanity: calcSAN,
-        luck: calcLuck,
-        magic_points: calcMP,
-        mov: calcMOV()
+        hitpoints: Math.floor((character.con + character.siz)/10),
+        sanity: character.pow,
+        luck: character.pow,
+        magic_points: Math.floor(character.pow / 5),
+        mov: (() => {if (character.dex > character.siz && character.str > character.siz) return 9; if(character.dex < character.siz && character.str < character.siz) return 7; return 8})()
       };
 
       if (isEditing && id) {
@@ -110,109 +102,22 @@ function CoCCharacter() {
     }
   };
 
-  const loadCharacter = (char) => {
-    setCharacter({ ...char });
-    setIsEditing(true);
-  };
-
-  const deleteCharacter = async (id) => {
-    await supabase.from("coc_characters").delete().eq("id", id);
-    setCharacters(prev => prev.filter(c => c.id !== id));
-  };
-
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    let y = 10;
-
-    // Persönliche Infos
-    doc.text(`Gespielt von: ${character.played_by}`, 10, y); y+=6;
-    doc.text(`Beruf: ${character.profession}`, 10, y); y+=6;
-    doc.text(`Geburtstag: ${character.birthdate ?? ""}`, 10, y); y+=6;
-    doc.text(`Alter: ${character.age ?? ""}`, 10, y); y+=6;
-    doc.text(`Geschlecht: ${character.gender ?? ""}`, 10, y); y+=6;
-    doc.text(`Wohnort: ${character.residence ?? ""}`, 10, y); y+=6;
-    doc.text(`Geburtsort: ${character.birthplace ?? ""}`, 10, y); y+=10;
-
-    // Attribute
-    ["str","dex","con","siz","intell","app","pow","edu"].forEach(a => {
-      doc.text(`${a.toUpperCase()}: ${character[a]}`, 10, y); y+=6;
-    });
-    doc.text(`HP: ${calcHP} SAN: ${calcSAN} Luck: ${calcLuck} MP: ${calcMP} MOV: ${calcMOV()}`, 10, y); y+=10;
-
-    // Skills
-    skills.forEach(s => { doc.text(`${s}: ${character[s]}`, 10, y); y+=5; });
-    if (character.custom_skill_name) { doc.text(`${character.custom_skill_name}: ${character.custom_skill_value}`, 10, y); y+=6; }
-
-    // Kampf
-    doc.text("Kampf-Fertigkeiten:", 10, y); y+=6;
-    doc.text(`Ausweichen: ${character.dodge}`, 10, y); y+=5;
-    doc.text(`Nahkampf: ${character.melee}`, 10, y); y+=5;
-    doc.text(`Schuss Fehlfunktion: ${character.firearm_malfunction}`, 10, y); y+=5;
-    doc.text(`Fernkampf (Faustfeuerwaffe): ${character.ranged_firearm}`, 10, y); y+=5;
-    doc.text(`Fernkampf (Gewehr/Flinte): ${character.rifle_shotgun}`, 10, y); y+=10;
-
-    doc.save("character.pdf");
-  };
+  const loadCharacter = (char) => { setCharacter({ ...char }); setIsEditing(true); };
+  const deleteCharacter = async (id) => { await supabase.from("coc_characters").delete().eq("id", id); setCharacters(prev => prev.filter(c => c.id !== id)); };
 
   return (
     <div style={{padding:"20px", maxWidth:"900px", margin:"0 auto", fontFamily:"serif"}}>
       {error && <p style={{color:'red'}}>{error}</p>}
 
-      <h2>Charakter</h2>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:"10px", marginBottom:"10px"}}>
-        <div><label>Gespielt von</label><input name="played_by" value={character.played_by ?? ""} onChange={handleChange} /></div>
-        <div><label>Beruf</label><input name="profession" value={character.profession ?? ""} onChange={handleChange} /></div>
-        <div><label>Geburtstag</label><input name="birthdate" type="date" value={character.birthdate ?? ""} onChange={handleChange} /></div>
-        <div><label>Alter</label><input name="age" type="number" value={character.age ?? ""} onChange={handleChange} /></div>
-        <div><label>Geschlecht</label><input name="gender" value={character.gender ?? ""} onChange={handleChange} /></div>
-        <div><label>Wohnort</label><input name="residence" value={character.residence ?? ""} onChange={handleChange} /></div>
-        <div><label>Geburtsort</label><input name="birthplace" value={character.birthplace ?? ""} onChange={handleChange} /></div>
-      </div>
+      <PersonalInfo character={character} handleChange={handleChange}/>
+      <Attributes character={character} handleChange={handleChange}/>
+      <Skills character={character} handleChange={handleChange} skillsList={skillsList}/>
+      <CombatBlock character={character} handleChange={handleChange}/>
+      <Background character={character} handleChange={handleChange}/>
 
-      <h3>Attribute</h3>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:"10px"}}>
-        {["str","dex","con","siz","intell","app","pow","edu","mov"].map(attr => (
-          <div key={attr}>
-            <label>{attr.toUpperCase()}</label>
-            <input name={attr} type="number" value={character[attr] ?? ""} onChange={handleChange} />
-          </div>
-        ))}
-      </div>
-
-      <h3>Abgeleitete Werte</h3>
-      <p>HP: {calcHP} | SAN: {calcSAN} | Luck: {calcLuck} | MP: {calcMP} | MOV: {calcMOV()}</p>
-
-      <h3>Fertigkeiten</h3>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"10px"}}>
-        {skills.map(skill => (
-          <div key={skill}>
-            <label>{skill.replaceAll("_"," ")}</label>
-            <input name={skill} type="number" value={character[skill] ?? ""} onChange={handleChange} />
-          </div>
-        ))}
-      </div>
-
-      <h3>Besondere Fertigkeit</h3>
-      <div style={{display:"flex", gap:"10px", alignItems:"center", marginBottom:"10px"}}>
-        <input name="custom_skill_name" placeholder="Name" value={character.custom_skill_name ?? ""} onChange={handleChange} style={{flex:1}}/>
-        <input name="custom_skill_value" type="number" placeholder="Wert" value={character.custom_skill_value ?? ""} onChange={handleChange} style={{width:"80px"}}/>
-      </div>
-
-      <h3>Kampf</h3>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"10px"}}>
-        <div><label>Ausweichen (1/2 GE)</label><input name="dodge" type="number" value={character.dodge ?? 0} onChange={handleChange} /></div>
-        <div><label>Nahkampf (Handgemenge) (25%)</label><input name="melee" type="number" value={character.melee ?? 25} onChange={handleChange} /></div>
-        <div><label>Schuss Fehlfunktion</label><input name="firearm_malfunction" type="number" value={character.firearm_malfunction ?? 0} onChange={handleChange} /></div>
-        <div><label>Fernkampf (Faustfeuerwaffe) (20%)</label><input name="ranged_firearm" type="number" value={character.ranged_firearm ?? 20} onChange={handleChange} /></div>
-        <div><label>Fernkampf (Gewehr/Flinte) (25%)</label><input name="rifle_shotgun" type="number" value={character.rifle_shotgun ?? 25} onChange={handleChange} /></div>
-      </div>
-
-      <h3>Hintergrund</h3>
-      <textarea name="background" value={character.background ?? ""} onChange={handleChange} />
-
-      <br/><br/>
+      <br/>
       <button onClick={saveCharacter}>{isEditing ? "Aktualisieren" : "Speichern"}</button>
-      <button onClick={exportPDF}>PDF</button>
+      <button onClick={() => exportPDF(character)}>PDF</button>
 
       <h3>Gespeicherte Charaktere</h3>
       <ul>
@@ -227,5 +132,3 @@ function CoCCharacter() {
     </div>
   );
 }
-
-export default CoCCharacter;
