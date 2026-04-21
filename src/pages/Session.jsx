@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabaseClient";
+import { createRollPayload } from "../lib/diceRules";
+import { applyWhiteboardAction, initialWhiteboardState } from "../lib/whiteboardState";
 
 import Dice from "./Dice";
 import Whiteboard from "./Whiteboard";
@@ -10,17 +12,23 @@ export default function Session() {
   const { id: sessionId } = useParams();
 
   const [activeTab, setActiveTab] = useState("character");
+  const [currentUserId, setCurrentUserId] = useState(null);
   const [players, setPlayers] = useState([]);
   const [character, setCharacter] = useState(null);
   const [isGM, setIsGM] = useState(false);
   const [messages, setMessages] = useState([]);
   const [diceResults, setDiceResults] = useState([]);
+  const [whiteboardState, setWhiteboardState] = useState(initialWhiteboardState);
   const [channelStatus, setChannelStatus] = useState("connecting");
 
   const channelRef = useRef(null);
   const userRef = useRef(null);
+  const processedWhiteboardActionIdsRef = useRef(new Set());
 
   const appendUniqueDiceResult = (payload) => {
+    // Eigene und empfangene Realtime-Wuerfe laufen beide hier durch.
+    // Damit derselbe Wurf nicht doppelt erscheint, pruefen wir ueber die id,
+    // ob er schon in der Liste enthalten ist.
     setDiceResults((prev) => {
       if (prev.some((entry) => entry.id === payload.id)) {
         return prev;
@@ -31,6 +39,7 @@ export default function Session() {
   };
 
   const appendUniqueMessage = (payload) => {
+    // Dasselbe Prinzip fuer Chatnachrichten.
     setMessages((prev) => {
       if (prev.some((entry) => entry.id === payload.id)) {
         return prev;
@@ -38,6 +47,15 @@ export default function Session() {
 
       return [...prev, payload];
     });
+  };
+
+  const appendWhiteboardAction = (action) => {
+    if (!action?.id || processedWhiteboardActionIdsRef.current.has(action.id)) {
+      return;
+    }
+
+    processedWhiteboardActionIdsRef.current.add(action.id);
+    setWhiteboardState((prev) => applyWhiteboardAction(prev, action));
   };
 
   // 🧠 Load session + user
@@ -49,6 +67,7 @@ export default function Session() {
       if (!user) return;
 
       userRef.current = user;
+      setCurrentUserId(user.id);
 
       const { data, error } = await supabase
         .from("session_players")
@@ -84,6 +103,9 @@ export default function Session() {
 
   // ⚡ Realtime setup
   useEffect(() => {
+    // Pro Session wird genau ein Supabase-Realtime-Kanal geoeffnet.
+    // "self: true" bedeutet:
+    // Auch eigene Broadcasts kommen wieder beim Sender an.
     const channel = supabase.channel(`session-${sessionId}`, {
       config: {
         broadcast: {
@@ -95,10 +117,12 @@ export default function Session() {
     channelRef.current = channel;
 
     channel.on("broadcast", { event: "dice_roll" }, (msg) => {
+      // Eingehende Wuerfe landen direkt im Dice-Feed.
       appendUniqueDiceResult(msg.payload);
     });
 
     channel.on("broadcast", { event: "chat_message" }, (msg) => {
+      // Eingehende Nachrichten landen direkt im Chat-Feed.
       appendUniqueMessage(msg.payload);
     });
 
@@ -112,11 +136,7 @@ export default function Session() {
     });
 
     channel.on("broadcast", { event: "draw" }, (msg) => {
-      window.dispatchEvent(
-        new CustomEvent("whiteboard_draw", {
-          detail: msg.payload,
-        })
-      );
+      appendWhiteboardAction(msg.payload);
     });
 
     channel.subscribe((status) => {
@@ -129,43 +149,16 @@ export default function Session() {
     };
   }, [sessionId]);
 
-  // 🎲 Dice
-  const rollDie = (sides) => Math.floor(Math.random() * sides) + 1;
-
   const rollDice = (request = { count: 1, sides: 20, modifier: 0, mode: "normal" }) => {
-    const { count = 1, sides = 20, modifier = 0, mode = "normal" } = request;
+    // Zentraler Einstieg fuer alle Wuerfe aus der UI.
+    // Die eigentliche Logik steckt in createRollPayload(),
+    // damit Session und lokale Dice-Ansicht dieselben Regeln benutzen.
+    const payload = createRollPayload(request, userRef.current?.id);
 
-    let result;
-    let label;
-    let detail;
-
-    if (mode === "adv" || mode === "dis") {
-      const first = rollDie(sides);
-      const second = rollDie(sides);
-      const selected = mode === "adv" ? Math.max(first, second) : Math.min(first, second);
-
-      result = selected + modifier;
-      label = `${mode.toUpperCase()} d${sides}`;
-      detail = `${first}, ${second}${modifier ? ` ${modifier > 0 ? "+" : "-"} ${Math.abs(modifier)}` : ""}`;
-    } else {
-      const rolls = Array.from({ length: count }, () => rollDie(sides));
-      const sum = rolls.reduce((total, current) => total + current, 0);
-
-      result = sum + modifier;
-      label = `${count}d${sides}`;
-      detail = `[${rolls.join(", ")}]${modifier ? ` ${modifier > 0 ? "+" : "-"} ${Math.abs(modifier)}` : ""}`;
-    }
-
-    const payload = {
-      id: `${userRef.current?.id ?? "anon"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      userId: userRef.current?.id,
-      result,
-      label,
-      detail,
-    };
-
+    // Sofort lokal anzeigen, damit die UI direkt reagiert.
     appendUniqueDiceResult(payload);
 
+    // Danach an alle Session-Teilnehmer broadcasten.
     channelRef.current?.send({
       type: "broadcast",
       event: "dice_roll",
@@ -175,6 +168,8 @@ export default function Session() {
 
   // 💬 Chat
   const sendMessage = (text) => {
+    // Nachrichten bekommen ebenfalls eine stabile id,
+    // damit lokale Anzeige und Realtime-Antwort nicht doppelt rendern.
     const payload = {
       id: `${userRef.current?.id ?? "anon"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       userId: userRef.current?.id,
@@ -206,6 +201,8 @@ export default function Session() {
 
   // 🎨 Whiteboard
   const sendDraw = (data) => {
+    appendWhiteboardAction(data);
+
     channelRef.current?.send({
       type: "broadcast",
       event: "draw",
@@ -286,6 +283,9 @@ export default function Session() {
 
         {activeTab === "chat" && (
           <Dice
+            // Dice ist bewusst "dumm" genug, dass es nur Callbacks und Daten bekommt.
+            // Dadurch bleibt die Session fuer Realtime zustaendig,
+            // die Dice-Komponente aber fuer Darstellung und Eingabe.
             onRoll={rollDice}
             onSendMessage={sendMessage}
             results={diceResults}
@@ -294,7 +294,15 @@ export default function Session() {
           />
         )}
 
-        {activeTab === "whiteboard" && <Whiteboard isGM={isGM} onDraw={sendDraw} />}
+        {activeTab === "whiteboard" && (
+          <Whiteboard
+            isGM={isGM}
+            onDraw={sendDraw}
+            boardState={whiteboardState}
+            currentUserId={currentUserId}
+            players={players}
+          />
+        )}
       </div>
     </div>
   );
