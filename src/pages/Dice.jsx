@@ -1,125 +1,159 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-function Dice() {
-  const [messages, setMessages] = useState([]);
+const SUPPORTED_SIDES = [4, 6, 8, 10, 12, 20, 100];
+
+function rollDie(sides) {
+  return Math.floor(Math.random() * sides) + 1;
+}
+
+function parseCommand(command) {
+  const text = command.toLowerCase().trim();
+  const match = text.match(/(\d*)d(4|6|8|10|12|20|100)/);
+
+  if (!match) return null;
+
+  const count = parseInt(match[1] || "1", 10);
+  const sides = parseInt(match[2], 10);
+  const modifierMatch = text.match(/([+-]\d+)/);
+  const modifier = modifierMatch ? parseInt(modifierMatch[1], 10) : 0;
+  const mode = text.includes("adv") ? "adv" : text.includes("dis") ? "dis" : "normal";
+
+  return { count, sides, modifier, mode };
+}
+
+function buildLocalRoll(parsed) {
+  if (parsed.mode === "adv" || parsed.mode === "dis") {
+    const first = rollDie(parsed.sides);
+    const second = rollDie(parsed.sides);
+    const selected = parsed.mode === "adv" ? Math.max(first, second) : Math.min(first, second);
+    const total = selected + parsed.modifier;
+    const modifierText = parsed.modifier ? ` ${parsed.modifier > 0 ? "+" : "-"} ${Math.abs(parsed.modifier)}` : "";
+
+    return {
+      id: `local-roll-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "roll",
+      label: `${parsed.mode.toUpperCase()} d${parsed.sides}`,
+      detail: `${first}, ${second}${modifierText}`,
+      result: total,
+    };
+  }
+
+  const rolls = [];
+  let sum = 0;
+
+  for (let i = 0; i < parsed.count; i += 1) {
+    const roll = rollDie(parsed.sides);
+    rolls.push(roll);
+    sum += roll;
+  }
+
+  const total = sum + parsed.modifier;
+  const modifierText = parsed.modifier ? ` ${parsed.modifier > 0 ? "+" : "-"} ${Math.abs(parsed.modifier)}` : "";
+
+  return {
+    id: `local-roll-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: "roll",
+    label: `${parsed.count}d${parsed.sides}`,
+    detail: `[${rolls.join(", ")}]${modifierText}`,
+    result: total,
+  };
+}
+
+function formatTimelineEntry(entry, index) {
+  if (entry.type === "chat") {
+    return {
+      id: entry.id || `chat-${index}`,
+      kind: "chat",
+      text: `${entry.userId || "User"}: ${entry.text}`,
+    };
+  }
+
+  const userLabel = entry.userId || `Wurf ${index + 1}`;
+  const detail = entry.detail ? ` (${entry.detail})` : "";
+
+  return {
+    id: entry.id || `roll-${index}`,
+    kind: "roll",
+    text: `${userLabel}: ${entry.label || "d20"} = ${entry.result ?? "?"}${detail}`,
+  };
+}
+
+function Dice({ onRoll, onSendMessage, results = [], messages = [] }) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState("normal");
+  const [localEntries, setLocalEntries] = useState([]);
 
-  function rollDie(sides) {
-    return Math.floor(Math.random() * sides) + 1;
-  }
-  
-  function roll(sides) {
-  const roll1 = rollDie(sides);
+  const timeline = useMemo(() => {
+    const sessionEntries = [
+      ...results.map((entry) => ({ ...entry, type: "roll" })),
+      ...messages.map((entry) => ({ ...entry, type: "chat" })),
+    ];
 
-  let resultText = `🎲 d${sides}: ${roll1}`;
-
-  // ADV / DIS
-  if (mode === "adv" || mode === "dis") {
-    const roll2 = rollDie(sides);
-
-    const final =
-      mode === "adv"
-        ? Math.max(roll1, roll2)
-        : Math.min(roll1, roll2);
-
-    resultText = `🎲 ${mode.toUpperCase()}: ${roll1} & ${roll2} → ${final}`;
-  }
-
-  setMessages([
-    ...messages,
-    { type: "bot", text: resultText }
-  ]);
-}
-
-  function parseCommand(command) {
-    let text = command.toLowerCase().trim();
-
-    let match = text.match(/(\d*)d(4|6|8|10|12|20|100)/);
-    if (!match) return null;
-
-    let count = parseInt(match[1] || "1");
-    let sides = parseInt(match[2]);
-
-    let modifierMatch = text.match(/([+-]\d+)/);
-    let modifier = modifierMatch ? parseInt(modifierMatch[1]) : 0;
-
-    let advantage = text.includes("adv");
-    let disadvantage = text.includes("dis");
-
-    return { count, sides, modifier, advantage, disadvantage };
-  }
-
-function sendMessage() {
-  if (!input.trim()) return;
-
-  const newMessages = [...messages, { type: "user", text: input }];
-  const text = input.toLowerCase();
-
-  const isDiceCommand = /(\d*d(4|6|8|10|12|20|100))/.test(text);
-
-if (!isDiceCommand) {
-  setMessages(newMessages);
-  setInput("");
-  return;
-}
-
-  // 🎲 WÜRFEL LOGIK (dein bestehender Parser)
-  const parsed = parseCommand(text);
-
-  if (!parsed) {
-    newMessages.push({
-      type: "bot",
-      text: "❓ Ungültiger Würfel"
-    });
-    setMessages(newMessages);
-    setInput("");
-    return;
-  }
-
-  let results = [];
-
-  if (parsed.advantage || parsed.disadvantage) {
-    const r1 = rollDie(parsed.sides);
-    const r2 = rollDie(parsed.sides);
-
-    const final = parsed.advantage
-      ? Math.max(r1, r2)
-      : Math.min(r1, r2);
-
-    results.push({
-      text: `🎲 ADV/DIS: ${r1} & ${r2} → ${final + parsed.modifier}`
-    });
-  } else {
-    let sum = 0;
-    let rolls = [];
-
-    for (let i = 0; i < parsed.count; i++) {
-      const r = rollDie(parsed.sides);
-      rolls.push(r);
-      sum += r;
+    if (sessionEntries.length > 0) {
+      return sessionEntries;
     }
 
-    results.push({
-      text: `🎲 Rolls: [${rolls.join(", ")}]`
-    });
+    return localEntries;
+  }, [localEntries, messages, results]);
 
-    results.push({
-      text: `🔥 TOTAL: ${sum + parsed.modifier}`
-    });
-  }
-
-  results.forEach(r =>
-    newMessages.push({ type: "bot", text: r.text })
+  const displayEntries = useMemo(
+    () =>
+      timeline
+        .map(formatTimelineEntry)
+        .sort((a, b) => (a.id > b.id ? 1 : -1)),
+    [timeline]
   );
 
-  setMessages(newMessages);
-  setInput("");
-}
+  const triggerRoll = (parsed) => {
+    if (onRoll) {
+      onRoll(parsed);
+      return;
+    }
 
-  function handleKey(e) {
-    if (e.key === "Enter") sendMessage();
-  }
+    setLocalEntries((prev) => [...prev, buildLocalRoll(parsed)]);
+  };
+
+  const triggerChat = (text) => {
+    if (onSendMessage) {
+      onSendMessage(text);
+      return;
+    }
+
+    setLocalEntries((prev) => [
+      ...prev,
+      {
+        id: `local-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: "chat",
+        userId: "Ich",
+        text,
+      },
+    ]);
+  };
+
+  const handleQuickRoll = (sides) => {
+    triggerRoll({ count: 1, sides, modifier: 0, mode });
+  };
+
+  const handleSubmit = () => {
+    const text = input.trim();
+    if (!text) return;
+
+    const parsed = parseCommand(text);
+
+    if (parsed) {
+      triggerRoll(parsed);
+    } else {
+      triggerChat(text);
+    }
+
+    setInput("");
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Enter") {
+      handleSubmit();
+    }
+  };
 
   return (
     <div
@@ -128,20 +162,21 @@ if (!isDiceCommand) {
         gap: "20px",
         padding: "40px",
         maxWidth: "1000px",
-        margin: "0 auto"
+        margin: "0 auto",
+        color: "#f7f1de",
       }}
     >
-      {/* LEFT SIDE - COMMANDS */}
       <div
         style={{
           width: "250px",
-          border: "1px solid #ddd",
-          borderRadius: "10px",
+          border: "1px solid rgba(233, 204, 145, 0.18)",
+          borderRadius: "18px",
           padding: "15px",
-          height: "500px"
+          height: "500px",
+          background: "rgba(255, 247, 231, 0.05)",
         }}
       >
-        <h3>📜 Befehle</h3>
+        <h3 style={{ color: "#fff0c8" }}>Befehle</h3>
 
         <ul>
           <li>1d20</li>
@@ -153,125 +188,158 @@ if (!isDiceCommand) {
 
         <hr />
 
-        <p><b>Würfel:</b></p>
+        <p>
+          <b style={{ color: "#f5deb2" }}>Wuerfel</b>
+        </p>
         <ul>
-          <li>d4</li>
-          <li>d6</li>
-          <li>d8</li>
-          <li>d10</li>
-          <li>d12</li>
-          <li>d20</li>
-          <li>d100</li>
+          {SUPPORTED_SIDES.map((sides) => (
+            <li key={sides}>{`d${sides}`}</li>
+          ))}
         </ul>
       </div>
 
-      {/* RIGHT SIDE - CHAT */}
       <div style={{ flex: 1 }}>
-        <h1>🎲 Dice Chat</h1>
-<div style={{ marginBottom: "10px" }}>
-  <h3>
-    🎯 Mode:{" "}
-    <span
-      style={{
-        color:
-          mode === "adv"
-            ? "green"
-            : mode === "dis"
-            ? "red"
-            : "black",
-        fontWeight: "bold"
-      }}
-    >
-      {mode.toUpperCase()}
-    </span>
-  </h3>
-</div>
+        <h1 style={{ color: "#fff0c8" }}>Dice Chat</h1>
+
+        <div style={{ marginBottom: "10px" }}>
+          <h3>
+            Modus:{" "}
+            <span
+              style={{
+                color: mode === "adv" ? "#84d98a" : mode === "dis" ? "#ff8b7a" : "#f5deb2",
+                fontWeight: "bold",
+              }}
+            >
+              {mode.toUpperCase()}
+            </span>
+          </h3>
+        </div>
+
         <div
           style={{
-            border: "1px solid #ccc",
-            borderRadius: "10px",
+            border: "1px solid rgba(233, 204, 145, 0.18)",
+            borderRadius: "18px",
             padding: "10px",
             height: "350px",
             overflowY: "auto",
             marginBottom: "10px",
-            background: "#fafafa"
+            background: "rgba(255, 248, 236, 0.08)",
           }}
         >
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                textAlign: msg.type === "user" ? "right" : "left",
-                margin: "6px 0"
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-block",
-                  padding: "6px 10px",
-                  borderRadius: "8px",
-                  background:
-                    msg.type === "user" ? "#d1e7ff" : "#eee"
-                }}
-              >
-                {msg.text}
-              </span>
-            </div>
-          ))}
+          {displayEntries.length === 0 ? (
+            <p style={{ color: "rgba(247, 241, 222, 0.72)" }}>Noch keine Nachrichten oder Wuerfelwuerfe.</p>
+          ) : (
+            displayEntries.map((entry) => (
+              <div key={entry.id} style={{ margin: "6px 0" }}>
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    background: entry.kind === "chat" ? "#f1d8aa" : "#efe6d1",
+                    color: "#1f1712",
+                    border: "1px solid rgba(64, 44, 29, 0.08)",
+                  }}
+                >
+                  {entry.text}
+                </span>
+              </div>
+            ))
+          )}
         </div>
 
         <div style={{ display: "flex", gap: "10px" }}>
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder="z.B. 2d6+3, 1d20 adv"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Nachricht oder z. B. 2d6+3, 1d20 adv"
             style={{
               flex: 1,
               padding: "10px",
               borderRadius: "6px",
-              border: "1px solid #ccc"
+              border: "1px solid rgba(233, 204, 145, 0.22)",
+              background: "rgba(255, 247, 231, 0.08)",
+              color: "#fff4dd",
             }}
           />
 
           <button
-            onClick={sendMessage}
+            onClick={handleSubmit}
             style={{
               padding: "10px 15px",
               borderRadius: "6px",
               border: "none",
-              background: "#333",
-              color: "white"
+              background: "linear-gradient(135deg, #f4d28e, #d89f49)",
+              color: "#1a130e",
+              fontWeight: 700,
             }}
           >
-            Würfeln
+            Senden
           </button>
         </div>
-		{/* WÜRFEL BUTTONS */}
-<div style={{ marginTop: "15px" }}>
-  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-    {[4, 6, 8, 10, 12, 20, 100].map((s) => (
-      <button key={s} onClick={() => roll(s)}>
-        d{s}
-      </button>
-    ))}
-  </div>
 
-  {/* MODE BUTTONS */}
-  <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
-    <button onClick={() => setMode("normal")}>
-      NORMAL
-    </button>
+        <div style={{ marginTop: "15px" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {SUPPORTED_SIDES.map((sides) => (
+              <button
+                key={sides}
+                onClick={() => handleQuickRoll(sides)}
+                style={{
+                  borderRadius: "999px",
+                  border: "1px solid rgba(233, 204, 145, 0.2)",
+                  background: "rgba(245, 225, 185, 0.06)",
+                  color: "#fff0c8",
+                  padding: "10px 14px",
+                }}
+              >
+                {`d${sides}`}
+              </button>
+            ))}
+          </div>
 
-    <button onClick={() => setMode("adv")}>
-      ADV
-    </button>
-
-    <button onClick={() => setMode("dis")}>
-      DIS
-    </button>
-  </div>
-</div>
+          <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
+            <button
+              onClick={() => setMode("normal")}
+              style={{
+                borderRadius: "999px",
+                border: "1px solid rgba(233, 204, 145, 0.2)",
+                background: mode === "normal" ? "#f4d28e" : "rgba(245, 225, 185, 0.06)",
+                color: mode === "normal" ? "#1a130e" : "#fff0c8",
+                padding: "10px 14px",
+                fontWeight: 700,
+              }}
+            >
+              NORMAL
+            </button>
+            <button
+              onClick={() => setMode("adv")}
+              style={{
+                borderRadius: "999px",
+                border: "1px solid rgba(233, 204, 145, 0.2)",
+                background: mode === "adv" ? "#84d98a" : "rgba(245, 225, 185, 0.06)",
+                color: mode === "adv" ? "#102212" : "#fff0c8",
+                padding: "10px 14px",
+                fontWeight: 700,
+              }}
+            >
+              ADV
+            </button>
+            <button
+              onClick={() => setMode("dis")}
+              style={{
+                borderRadius: "999px",
+                border: "1px solid rgba(233, 204, 145, 0.2)",
+                background: mode === "dis" ? "#ff8b7a" : "rgba(245, 225, 185, 0.06)",
+                color: mode === "dis" ? "#2d120d" : "#fff0c8",
+                padding: "10px 14px",
+                fontWeight: 700,
+              }}
+            >
+              DIS
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
