@@ -89,10 +89,24 @@ function HomePage() {
       return false;
     }
 
+    const { data: sessionRow, error: sessionLookupError } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle();
+
+    if (sessionLookupError) {
+      console.error(sessionLookupError);
+      setStatus(`Session wurde erstellt, aber Session-ID konnte nicht geladen werden: ${sessionLookupError.message}`);
+      return false;
+    }
+
+    const sessionPlayerId = sessionRow?.id || slug;
+
     const { data: existingMembership, error: memberLookupError } = await supabase
       .from("session_players")
       .select("id")
-      .eq("session_id", slug)
+      .eq("session_id", sessionPlayerId)
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -103,7 +117,7 @@ function HomePage() {
     }
 
     const membershipPayload = {
-      session_id: slug,
+      session_id: sessionPlayerId,
       user_id: user.id,
       role: "gm",
     };
