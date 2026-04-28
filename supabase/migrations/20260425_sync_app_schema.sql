@@ -212,6 +212,7 @@ create table if not exists public.session_players (
   id uuid primary key default gen_random_uuid(),
   session_id text not null,
   user_id uuid not null references auth.users (id) on delete cascade,
+  display_name text,
   role text not null default 'player' check (role in ('gm', 'player')),
   character_id uuid references public.characters (id) on delete set null,
   created_at timestamptz not null default now(),
@@ -220,6 +221,7 @@ create table if not exists public.session_players (
 );
 
 alter table public.session_players add column if not exists role text not null default 'player';
+alter table public.session_players add column if not exists display_name text;
 alter table public.session_players add column if not exists character_id uuid references public.characters (id) on delete set null;
 alter table public.session_players add column if not exists created_at timestamptz not null default now();
 alter table public.session_players add column if not exists updated_at timestamptz not null default now();
