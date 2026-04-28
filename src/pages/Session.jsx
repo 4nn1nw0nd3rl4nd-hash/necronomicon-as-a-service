@@ -183,14 +183,29 @@ export default function Session() {
 
       if (!me) {
         const defaultRole = sessionRow?.created_by === user.id ? "gm" : "player";
-        const { error: joinError } = await supabase.from("session_players").upsert(
-          {
-            session_id: sessionId,
-            user_id: user.id,
-            role: defaultRole,
-          },
-          { onConflict: "session_id,user_id" },
-        );
+        const membershipPayload = {
+          session_id: sessionId,
+          user_id: user.id,
+          role: defaultRole,
+        };
+        const { data: existingMembership, error: memberLookupError } = await supabase
+          .from("session_players")
+          .select("id")
+          .eq("session_id", sessionId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (memberLookupError) {
+          console.error(memberLookupError);
+          return;
+        }
+
+        const { error: joinError } = existingMembership
+          ? await supabase
+              .from("session_players")
+              .update({ role: defaultRole })
+              .eq("id", existingMembership.id)
+          : await supabase.from("session_players").insert(membershipPayload);
 
         if (joinError) {
           console.error(joinError);
