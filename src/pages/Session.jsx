@@ -70,6 +70,22 @@ export default function Session() {
   };
 
   useEffect(() => {
+    const fetchPlayers = async () => {
+      return supabase
+        .from("session_players")
+        .select(`
+            role,
+            user_id,
+            characters (
+              id,
+              name,
+              system,
+              data
+            )
+          `)
+        .eq("session_id", sessionId);
+    };
+
     const load = async () => {
       const { data: userData } = await supabase.auth.getUser();
       const user = userData?.user;
@@ -85,7 +101,7 @@ export default function Session() {
         { data: whiteboardImages, error: imagesError },
         { data: whiteboardNotes, error: notesError },
         { data: whiteboardTokens, error: tokensError },
-        { data: playerRows, error: playerError },
+        { data: initialPlayerRows, error: playerError },
       ] = await Promise.all([
         supabase
           .from("sessions")
@@ -110,19 +126,7 @@ export default function Session() {
           .from("whiteboard_tokens")
           .select("user_id, x, y")
           .eq("session_slug", sessionId),
-        supabase
-          .from("session_players")
-          .select(`
-            role,
-            user_id,
-            characters (
-              id,
-              name,
-              system,
-              data
-            )
-          `)
-          .eq("session_id", sessionId),
+        fetchPlayers(),
       ]);
 
       if (sessionRow) {
@@ -174,9 +178,35 @@ export default function Session() {
         return;
       }
 
-      setPlayers(playerRows || []);
+      let playerRows = initialPlayerRows || [];
+      let me = playerRows.find((player) => player.user_id === user.id);
 
-      const me = playerRows?.find((player) => player.user_id === user.id);
+      if (!me) {
+        const defaultRole = sessionRow?.created_by === user.id ? "gm" : "player";
+        const { error: joinError } = await supabase.from("session_players").upsert(
+          {
+            session_id: sessionId,
+            user_id: user.id,
+            role: defaultRole,
+          },
+          { onConflict: "session_id,user_id" },
+        );
+
+        if (joinError) {
+          console.error(joinError);
+        } else {
+          const { data: refreshedPlayers, error: refreshPlayersError } = await fetchPlayers();
+          if (refreshPlayersError) {
+            console.error(refreshPlayersError);
+          } else {
+            playerRows = refreshedPlayers || [];
+            me = playerRows.find((player) => player.user_id === user.id);
+          }
+        }
+      }
+
+      setPlayers(playerRows);
+
       if (me) {
         setIsGM(me.role === "gm");
         setCharacter(me.characters);

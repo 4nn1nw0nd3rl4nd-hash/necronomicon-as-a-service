@@ -12,6 +12,9 @@ function HomePage() {
   const [createDescription, setCreateDescription] = useState("");
   const [sessions, setSessions] = useState([]);
   const [status, setStatus] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authUser, setAuthUser] = useState(null);
 
   const normalizedSessionId = sessionId.trim();
 
@@ -32,29 +35,72 @@ function HomePage() {
   };
 
   useEffect(() => {
-    loadSessions();
+    Promise.resolve().then(loadSessions);
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!ignore) {
+        setAuthUser(user || null);
+      }
+    };
+
+    loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user || null);
+    });
+
+    return () => {
+      ignore = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const ensureSessionExists = async (slug) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
 
+    if (!user) {
+      setStatus("Bitte zuerst einloggen, bevor du eine Session anlegst.");
+      return false;
+    }
+
     const payload = {
       slug,
       title: createTitle.trim() || `Session ${slug}`,
       description: createDescription.trim() || null,
-      created_by: user?.id || null,
+      created_by: user.id,
     };
 
     const { error } = await supabase.from("sessions").upsert(payload, { onConflict: "slug" });
 
     if (error) {
       console.error(error);
-      // Wichtiger Fallback:
-      // Auch wenn die Sessions-Tabelle auf Supabase noch nicht migriert wurde
-      // oder die Policies den Insert blockieren, soll der Nutzer die Session
-      // trotzdem direkt oeffnen koennen.
       setStatus(`Session-Metadaten konnten nicht gespeichert werden: ${error.message}`);
+      return false;
+    }
+
+    const { error: gmError } = await supabase.from("session_players").upsert(
+      {
+        session_id: slug,
+        user_id: user.id,
+        role: "gm",
+      },
+      { onConflict: "session_id,user_id" },
+    );
+
+    if (gmError) {
+      console.error(gmError);
+      setStatus(`Session wurde erstellt, aber GM-Rolle konnte nicht gesetzt werden: ${gmError.message}`);
       return false;
     }
 
@@ -66,7 +112,8 @@ function HomePage() {
   const handleStart = async () => {
     if (!normalizedSessionId) return;
 
-    await ensureSessionExists(normalizedSessionId);
+    const success = await ensureSessionExists(normalizedSessionId);
+    if (!success) return;
 
     navigate(`/session/${encodeURIComponent(normalizedSessionId)}`);
   };
@@ -75,6 +122,59 @@ function HomePage() {
     if (event.key === "Enter") {
       handleStart();
     }
+  };
+
+  const handleSignIn = async () => {
+    const email = authEmail.trim();
+    if (!email || !authPassword) {
+      setStatus("Bitte E-Mail und Passwort eingeben.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: authPassword,
+    });
+
+    if (error) {
+      setStatus(`Login fehlgeschlagen: ${error.message}`);
+      return;
+    }
+
+    setStatus("Erfolgreich eingeloggt.");
+    setAuthPassword("");
+  };
+
+  const handleSignUp = async () => {
+    const email = authEmail.trim();
+    if (!email || !authPassword) {
+      setStatus("Bitte E-Mail und Passwort eingeben.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password: authPassword,
+    });
+
+    if (error) {
+      setStatus(`Registrierung fehlgeschlagen: ${error.message}`);
+      return;
+    }
+
+    setStatus("Konto erstellt. Falls aktiviert, pruefe deine E-Mails zur Bestaetigung.");
+    setAuthPassword("");
+  };
+
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      setStatus(`Logout fehlgeschlagen: ${error.message}`);
+      return;
+    }
+
+    setStatus("Erfolgreich ausgeloggt.");
   };
 
   return (
@@ -89,6 +189,43 @@ function HomePage() {
           </p>
 
           <div className="landing-actions">
+            <div className="auth-card">
+              <span className="session-card-label">Login</span>
+              {authUser ? (
+                <>
+                  <p className="auth-user">Eingeloggt als {authUser.email || authUser.id}</p>
+                  <button type="button" className="secondary-button" onClick={handleSignOut}>
+                    Ausloggen
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    className="session-input"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="E-Mail"
+                    type="email"
+                  />
+                  <input
+                    className="session-input"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder="Passwort"
+                    type="password"
+                  />
+                  <div className="landing-buttons">
+                    <button type="button" className="secondary-button" onClick={handleSignIn}>
+                      Einloggen
+                    </button>
+                    <button type="button" className="secondary-button" onClick={handleSignUp}>
+                      Registrieren
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             <label className="session-card">
               <span className="session-card-label">Session-ID</span>
               <input
@@ -125,7 +262,7 @@ function HomePage() {
                 type="button"
                 className="primary-button"
                 onClick={handleStart}
-                disabled={!normalizedSessionId}
+                disabled={!normalizedSessionId || !authUser}
               >
                 Session betreten
               </button>
