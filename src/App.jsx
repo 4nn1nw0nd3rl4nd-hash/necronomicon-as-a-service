@@ -89,14 +89,28 @@ function HomePage() {
       return false;
     }
 
-    const { error: gmError } = await supabase.from("session_players").upsert(
-      {
-        session_id: slug,
-        user_id: user.id,
-        role: "gm",
-      },
-      { onConflict: "session_id,user_id" },
-    );
+    const { data: existingMembership, error: memberLookupError } = await supabase
+      .from("session_players")
+      .select("id")
+      .eq("session_id", slug)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memberLookupError) {
+      console.error(memberLookupError);
+      setStatus(`Session wurde erstellt, aber GM-Rolle konnte nicht geprueft werden: ${memberLookupError.message}`);
+      return false;
+    }
+
+    const membershipPayload = {
+      session_id: slug,
+      user_id: user.id,
+      role: "gm",
+    };
+
+    const { error: gmError } = existingMembership
+      ? await supabase.from("session_players").update({ role: "gm" }).eq("id", existingMembership.id)
+      : await supabase.from("session_players").insert(membershipPayload);
 
     if (gmError) {
       console.error(gmError);
