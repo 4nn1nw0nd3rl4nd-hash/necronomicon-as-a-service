@@ -2,23 +2,33 @@ import { useState } from "react";
 import CoCCharacter from "./CoCCharacter";
 import SplinterPortalsCharacter from "./SplinterPortalsCharacter";
 
-function Character() {
-  const [system, setSystem] = useState("CoC");
+const systems = [
+  { id: "CoC", label: "Call of Cthulhu", component: CoCCharacter },
+  { id: "SplinterPortals", label: "Splinter Portals", component: SplinterPortalsCharacter },
+];
+
+function Character({ character: sessionCharacter }) {
+  const initialSystem = sessionCharacter?.system === "SplinterPortals" ? "SplinterPortals" : "CoC";
+  const [system, setSystem] = useState(initialSystem);
+  const activeSystem = systems.find((entry) => entry.id === system) || systems[0];
+  const ActiveComponent = activeSystem.component;
 
   return (
     <div style={{ padding: "20px" }}>
-      <h2>🧾 Charakterbogen</h2>
+      <h2>Charakterbogen</h2>
 
-      <label>System wählen: </label>
-      <select value={system} onChange={e => setSystem(e.target.value)}>
-        <option value="CoC">Call of Cthulhu</option>
-        <option value="SplinterPortals">Splinter Portals</option>
+      <label>System waehlen: </label>
+      <select value={system} onChange={(event) => setSystem(event.target.value)}>
+        {systems.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.label}
+          </option>
+        ))}
       </select>
 
       <hr />
 
-      {system === "CoC" && <CoCCharacter />}
-      {system === "SplinterPortals" && <SplinterPortalsCharacter />}
+      <ActiveComponent />
     </div>
   );
 }

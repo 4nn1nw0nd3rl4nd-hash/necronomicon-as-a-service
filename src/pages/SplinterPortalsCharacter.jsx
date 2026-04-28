@@ -1,6 +1,15 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import jsPDF from "jspdf";
+import {
+  CharacterFrame,
+  Field,
+  inputStyle,
+  primaryActionStyle,
+  secondaryActionStyle,
+  sectionStyle,
+} from "../components/character/CharacterFrame";
+import SavedCharacterList from "../components/character/SavedCharacterList";
 
 const emptyCharacter = {
   id: null,
@@ -14,51 +23,101 @@ const emptyCharacter = {
   intelligence: 50,
   charisma: 50,
   skills: "[]",
-  items: "[]"
+  items: "[]",
 };
 
 function SplinterPortalsCharacter() {
   const [character, setCharacter] = useState(emptyCharacter);
   const [characters, setCharacters] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => { fetchCharacters(); }, []);
+  useEffect(() => {
+    fetchCharacters();
+  }, []);
 
   const fetchCharacters = async () => {
-    const { data } = await supabase.from("splinter_portals_characters").select("*").order("id");
-    if (data) setCharacters(data);
+    const { data, error: fetchError } = await supabase
+      .from("splinter_portals_characters")
+      .select("*")
+      .order("id");
+
+    if (fetchError) {
+      setError(`Charaktere konnten nicht geladen werden: ${fetchError.message}`);
+      return;
+    }
+
+    setError(null);
+    setCharacters(data || []);
   };
 
   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
-  const handleChange = (e) => {
-    const { name, type, value } = e.target;
-    let val = type === "number" ? Number(value) : value;
-    if (type === "number") val = clamp(val, 0, 100);
-    setCharacter(prev => ({ ...prev, [name]: val }));
+  const handleChange = (event) => {
+    const { name, type, value } = event.target;
+    let nextValue = type === "number" ? Number(value) : value;
+    if (type === "number") nextValue = clamp(nextValue, 0, 100);
+    setError(null);
+    setCharacter((prev) => ({ ...prev, [name]: nextValue }));
   };
 
   const saveCharacter = async () => {
-    const { id, ...data } = character;
-    if (isEditing && id) {
-      await supabase.from("splinter_portals_characters").update(data).eq("id", id);
-      setCharacters(prev => prev.map(c => (c.id === id ? character : c)));
-    } else {
-      const { data: inserted } = await supabase.from("splinter_portals_characters").insert([data]).select();
-      if (inserted && inserted[0]) setCharacters(prev => [...prev, inserted[0]]);
+    try {
+      const { id, ...data } = character;
+
+      if (isEditing && id) {
+        const { error: updateError } = await supabase
+          .from("splinter_portals_characters")
+          .update(data)
+          .eq("id", id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        setCharacters((prev) => prev.map((entry) => (entry.id === id ? { ...character, id } : entry)));
+      } else {
+        const { data: inserted, error: insertError } = await supabase
+          .from("splinter_portals_characters")
+          .insert([data])
+          .select();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        if (!inserted || !inserted[0]) {
+          throw new Error("Supabase hat keinen gespeicherten Charakter zurueckgegeben.");
+        }
+
+        setCharacters((prev) => [...prev, inserted[0]]);
+      }
+
+      setError(null);
+      setCharacter(emptyCharacter);
+      setIsEditing(false);
+    } catch (err) {
+      setError(`Speichern fehlgeschlagen: ${err.message}`);
     }
-    setCharacter(emptyCharacter);
-    setIsEditing(false);
   };
 
-  const loadCharacter = (char) => {
-    setCharacter({ ...char });
+  const loadCharacter = (entry) => {
+    setCharacter({ ...entry });
     setIsEditing(true);
   };
 
   const deleteCharacter = async (id) => {
-    await supabase.from("splinter_portals_characters").delete().eq("id", id);
-    setCharacters(prev => prev.filter(c => c.id !== id));
+    const { error: deleteError } = await supabase
+      .from("splinter_portals_characters")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(`Loeschen fehlgeschlagen: ${deleteError.message}`);
+      return;
+    }
+
+    setCharacters((prev) => prev.filter((entry) => entry.id !== id));
   };
 
   const exportPDF = () => {
@@ -71,39 +130,93 @@ function SplinterPortalsCharacter() {
     doc.text(`Klasse: ${character.klasse}`, 10, 30);
     doc.text(`Level: ${character.level}`, 10, 40);
     let y = 50;
-    ["health","mana","strength","agility","intelligence","charisma"].forEach(a => {
-      doc.text(`${a.toUpperCase()}: ${character[a]}`, 10, y);
+    ["health", "mana", "strength", "agility", "intelligence", "charisma"].forEach((attr) => {
+      doc.text(`${attr.toUpperCase()}: ${character[attr]}`, 10, y);
       y += 8;
     });
     doc.save(`${character.name || "character"}.pdf`);
   };
 
   return (
-    <div>
-      <button onClick={() => { setCharacter(emptyCharacter); setIsEditing(false); }}>Neuer Charakter</button>
-      <input name="name" placeholder="Name" value={character.name} onChange={handleChange} />
-      <input name="klasse" placeholder="Klasse" value={character.klasse} onChange={handleChange} />
-      <input name="level" type="number" placeholder="Level" value={character.level} onChange={handleChange} />
+    <CharacterFrame
+      eyebrow="Splinter Portals"
+      title="Abenteurerbogen"
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setCharacter(emptyCharacter);
+              setIsEditing(false);
+            }}
+            style={secondaryActionStyle}
+          >
+            Neuer Charakter
+          </button>
+          <button type="button" onClick={saveCharacter} style={primaryActionStyle}>
+            {isEditing ? "Aktualisieren" : "Speichern"}
+          </button>
+          <button type="button" onClick={exportPDF} style={secondaryActionStyle}>
+            PDF
+          </button>
+        </>
+      }
+    >
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      <h3>Attribute</h3>
-      {["health","mana","strength","agility","intelligence","charisma"].map(attr => (
-        <input key={attr} name={attr} type="number" value={character[attr]} onChange={handleChange} placeholder={attr.toUpperCase()} />
-      ))}
+      <section style={sectionStyle}>
+        <h3 style={{ marginTop: 0, color: "#3a281a" }}>Grunddaten</h3>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "14px",
+          }}
+        >
+          <Field label="Name">
+            <input name="name" value={character.name} onChange={handleChange} style={inputStyle} />
+          </Field>
+          <Field label="Klasse">
+            <input name="klasse" value={character.klasse} onChange={handleChange} style={inputStyle} />
+          </Field>
+          <Field label="Level">
+            <input name="level" type="number" value={character.level} onChange={handleChange} style={inputStyle} />
+          </Field>
+        </div>
+      </section>
 
-      <button onClick={saveCharacter}>{isEditing ? "Aktualisieren" : "Speichern"}</button>
-      <button onClick={exportPDF}>PDF</button>
+      <section style={sectionStyle}>
+        <h3 style={{ marginTop: 0, color: "#3a281a" }}>Attribute</h3>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: "12px",
+          }}
+        >
+          {["health", "mana", "strength", "agility", "intelligence", "charisma"].map((attr) => (
+            <Field key={attr} label={attr.toUpperCase()}>
+              <input
+                name={attr}
+                type="number"
+                value={character[attr]}
+                onChange={handleChange}
+                style={inputStyle}
+              />
+            </Field>
+          ))}
+        </div>
+      </section>
 
-      <h3>Gespeicherte Charaktere</h3>
-      <ul>
-        {characters.map(c => (
-          <li key={c.id}>
-            {c.name} ({c.klasse})
-            <button onClick={() => loadCharacter(c)}>Laden</button>
-            <button onClick={() => deleteCharacter(c.id)}>Löschen</button>
-          </li>
-        ))}
-      </ul>
-    </div>
+      <SavedCharacterList
+        emptyText="Noch keine Splinter-Portals-Charaktere gespeichert."
+        entries={characters}
+        getTitle={(entry) => entry.name || "Unbenannter Held"}
+        getSubtitle={(entry) => `${entry.klasse || "Keine Klasse"} · Level ${entry.level ?? 1}`}
+        onLoad={loadCharacter}
+        onDelete={deleteCharacter}
+      />
+    </CharacterFrame>
   );
 }
 

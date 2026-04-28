@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import { createRollPayload } from "../lib/diceRules";
 import { applyWhiteboardAction, initialWhiteboardState } from "../lib/whiteboardState";
+import { applyNotebookAction, initialNotebookState } from "../lib/notebookState";
 
 import Dice from "./Dice";
 import Whiteboard from "./Whiteboard";
 import Character from "./Character";
+import Notebook from "./Notebook";
 
 export default function Session() {
   const { id: sessionId } = useParams();
@@ -19,16 +22,16 @@ export default function Session() {
   const [messages, setMessages] = useState([]);
   const [diceResults, setDiceResults] = useState([]);
   const [whiteboardState, setWhiteboardState] = useState(initialWhiteboardState);
+  const [notebookState, setNotebookState] = useState(initialNotebookState);
+  const [sessionMeta, setSessionMeta] = useState(null);
   const [channelStatus, setChannelStatus] = useState("connecting");
 
   const channelRef = useRef(null);
   const userRef = useRef(null);
   const processedWhiteboardActionIdsRef = useRef(new Set());
+  const processedNotebookActionIdsRef = useRef(new Set());
 
   const appendUniqueDiceResult = (payload) => {
-    // Eigene und empfangene Realtime-Wuerfe laufen beide hier durch.
-    // Damit derselbe Wurf nicht doppelt erscheint, pruefen wir ueber die id,
-    // ob er schon in der Liste enthalten ist.
     setDiceResults((prev) => {
       if (prev.some((entry) => entry.id === payload.id)) {
         return prev;
@@ -39,7 +42,6 @@ export default function Session() {
   };
 
   const appendUniqueMessage = (payload) => {
-    // Dasselbe Prinzip fuer Chatnachrichten.
     setMessages((prev) => {
       if (prev.some((entry) => entry.id === payload.id)) {
         return prev;
@@ -58,7 +60,15 @@ export default function Session() {
     setWhiteboardState((prev) => applyWhiteboardAction(prev, action));
   };
 
-  // 🧠 Load session + user
+  const appendNotebookAction = (action) => {
+    if (!action?.id || processedNotebookActionIdsRef.current.has(action.id)) {
+      return;
+    }
+
+    processedNotebookActionIdsRef.current.add(action.id);
+    setNotebookState((prev) => applyNotebookAction(prev, action));
+  };
+
   useEffect(() => {
     const load = async () => {
       const { data: userData } = await supabase.auth.getUser();
@@ -69,29 +79,104 @@ export default function Session() {
       userRef.current = user;
       setCurrentUserId(user.id);
 
-      const { data, error } = await supabase
-        .from("session_players")
-        .select(`
-          role,
-          user_id,
-          characters (
-            id,
-            name,
-            system,
-            data
-          )
-        `)
-        .eq("session_id", sessionId);
+      const [
+        { data: sessionRow },
+        { data: notebookRows, error: notebookError },
+        { data: whiteboardImages, error: imagesError },
+        { data: whiteboardNotes, error: notesError },
+        { data: whiteboardTokens, error: tokensError },
+        { data: playerRows, error: playerError },
+      ] = await Promise.all([
+        supabase
+          .from("sessions")
+          .select("id, slug, title, description, created_by, created_at, updated_at")
+          .eq("slug", sessionId)
+          .maybeSingle(),
+        supabase
+          .from("notebook_pages")
+          .select("user_id, title, content, updated_at")
+          .eq("session_slug", sessionId),
+        supabase
+          .from("whiteboard_images")
+          .select("id, src, x, y, width, height, revealed, name")
+          .eq("session_slug", sessionId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("whiteboard_notes")
+          .select("id, text, x, y, author_id")
+          .eq("session_slug", sessionId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("whiteboard_tokens")
+          .select("user_id, x, y")
+          .eq("session_slug", sessionId),
+        supabase
+          .from("session_players")
+          .select(`
+            role,
+            user_id,
+            characters (
+              id,
+              name,
+              system,
+              data
+            )
+          `)
+          .eq("session_id", sessionId),
+      ]);
 
-      if (error) {
-        console.error(error);
+      if (sessionRow) {
+        setSessionMeta(sessionRow);
+      }
+
+      if (!notebookError && notebookRows) {
+        setNotebookState({
+          pages: notebookRows.map((page) => ({
+            userId: page.user_id,
+            title: page.title || "",
+            content: page.content || "",
+            updatedAt: page.updated_at,
+          })),
+        });
+      }
+
+      if (!imagesError && !notesError && !tokensError) {
+        setWhiteboardState({
+          images:
+            whiteboardImages?.map((image) => ({
+              id: image.id,
+              src: image.src,
+              x: image.x,
+              y: image.y,
+              width: image.width,
+              height: image.height,
+              revealed: image.revealed,
+              name: image.name,
+            })) || [],
+          notes:
+            whiteboardNotes?.map((note) => ({
+              id: note.id,
+              text: note.text,
+              x: note.x,
+              y: note.y,
+              authorId: note.author_id,
+            })) || [],
+          tokens:
+            whiteboardTokens?.reduce((acc, token) => {
+              acc[token.user_id] = { x: token.x, y: token.y };
+              return acc;
+            }, {}) || {},
+        });
+      }
+
+      if (playerError) {
+        console.error(playerError);
         return;
       }
 
-      setPlayers(data || []);
+      setPlayers(playerRows || []);
 
-      const me = data?.find((p) => p.user_id === user.id);
-
+      const me = playerRows?.find((player) => player.user_id === user.id);
       if (me) {
         setIsGM(me.role === "gm");
         setCharacter(me.characters);
@@ -101,11 +186,7 @@ export default function Session() {
     load();
   }, [sessionId]);
 
-  // ⚡ Realtime setup
   useEffect(() => {
-    // Pro Session wird genau ein Supabase-Realtime-Kanal geoeffnet.
-    // "self: true" bedeutet:
-    // Auch eigene Broadcasts kommen wieder beim Sender an.
     const channel = supabase.channel(`session-${sessionId}`, {
       config: {
         broadcast: {
@@ -117,12 +198,10 @@ export default function Session() {
     channelRef.current = channel;
 
     channel.on("broadcast", { event: "dice_roll" }, (msg) => {
-      // Eingehende Wuerfe landen direkt im Dice-Feed.
       appendUniqueDiceResult(msg.payload);
     });
 
     channel.on("broadcast", { event: "chat_message" }, (msg) => {
-      // Eingehende Nachrichten landen direkt im Chat-Feed.
       appendUniqueMessage(msg.payload);
     });
 
@@ -131,7 +210,7 @@ export default function Session() {
       if (!user) return;
 
       if (msg.payload.to === user.id) {
-        alert("GM: " + msg.payload.text);
+        alert(`GM: ${msg.payload.text}`);
       }
     });
 
@@ -139,9 +218,12 @@ export default function Session() {
       appendWhiteboardAction(msg.payload);
     });
 
+    channel.on("broadcast", { event: "notebook_update" }, (msg) => {
+      appendNotebookAction(msg.payload);
+    });
+
     channel.subscribe((status) => {
       setChannelStatus(status);
-      console.log("SUB STATUS:", status);
     });
 
     return () => {
@@ -150,15 +232,10 @@ export default function Session() {
   }, [sessionId]);
 
   const rollDice = (request = { count: 1, sides: 20, modifier: 0, mode: "normal" }) => {
-    // Zentraler Einstieg fuer alle Wuerfe aus der UI.
-    // Die eigentliche Logik steckt in createRollPayload(),
-    // damit Session und lokale Dice-Ansicht dieselben Regeln benutzen.
     const payload = createRollPayload(request, userRef.current?.id);
 
-    // Sofort lokal anzeigen, damit die UI direkt reagiert.
     appendUniqueDiceResult(payload);
 
-    // Danach an alle Session-Teilnehmer broadcasten.
     channelRef.current?.send({
       type: "broadcast",
       event: "dice_roll",
@@ -166,10 +243,7 @@ export default function Session() {
     });
   };
 
-  // 💬 Chat
   const sendMessage = (text) => {
-    // Nachrichten bekommen ebenfalls eine stabile id,
-    // damit lokale Anzeige und Realtime-Antwort nicht doppelt rendern.
     const payload = {
       id: `${userRef.current?.id ?? "anon"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       userId: userRef.current?.id,
@@ -185,23 +259,75 @@ export default function Session() {
     });
   };
 
-  // 🔒 Private GM message
-  const sendPrivateMessage = (toUserId, text) => {
-    if (!isGM) return;
+  const persistWhiteboardAction = async (data) => {
+    if (data.type === "add_image" && data.image) {
+      return supabase.from("whiteboard_images").upsert({
+        id: data.image.id,
+        session_slug: sessionId,
+        src: data.image.src,
+        x: data.image.x,
+        y: data.image.y,
+        width: data.image.width,
+        height: data.image.height,
+        revealed: data.image.revealed ?? false,
+        name: data.image.name || null,
+      });
+    }
 
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "private_message",
-      payload: {
-        to: toUserId,
-        text,
-      },
-    });
+    if (data.type === "move_image") {
+      return supabase
+        .from("whiteboard_images")
+        .update({ x: data.x, y: data.y })
+        .eq("session_slug", sessionId)
+        .eq("id", data.targetId);
+    }
+
+    if (data.type === "toggle_image_visibility") {
+      return supabase
+        .from("whiteboard_images")
+        .update({ revealed: data.revealed })
+        .eq("session_slug", sessionId)
+        .eq("id", data.targetId);
+    }
+
+    if (data.type === "add_note" && data.note) {
+      return supabase.from("whiteboard_notes").upsert({
+        id: data.note.id,
+        session_slug: sessionId,
+        text: data.note.text,
+        x: data.note.x,
+        y: data.note.y,
+        author_id: data.note.authorId,
+      });
+    }
+
+    if (data.type === "move_note") {
+      return supabase
+        .from("whiteboard_notes")
+        .update({ x: data.x, y: data.y })
+        .eq("session_slug", sessionId)
+        .eq("id", data.targetId);
+    }
+
+    if (data.type === "move_token") {
+      return supabase.from("whiteboard_tokens").upsert({
+        session_slug: sessionId,
+        user_id: data.userId,
+        x: data.x,
+        y: data.y,
+      });
+    }
+
+    return null;
   };
 
-  // 🎨 Whiteboard
-  const sendDraw = (data) => {
+  const sendDraw = async (data) => {
     appendWhiteboardAction(data);
+
+    const result = await persistWhiteboardAction(data);
+    if (result?.error) {
+      console.error(result.error);
+    }
 
     channelRef.current?.send({
       type: "broadcast",
@@ -210,10 +336,41 @@ export default function Session() {
     });
   };
 
+  const saveNotebookPage = async (page) => {
+    const action = {
+      id: `${userRef.current?.id ?? "anon"}-notebook-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`,
+      type: "upsert_page",
+      page,
+    };
+
+    appendNotebookAction(action);
+
+    const { error } = await supabase.from("notebook_pages").upsert({
+      session_slug: sessionId,
+      user_id: page.userId,
+      title: page.title,
+      content: page.content,
+      updated_at: page.updatedAt,
+    });
+
+    if (error) {
+      console.error(error);
+    }
+
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "notebook_update",
+      payload: action,
+    });
+  };
+
   const tabs = [
     { id: "character", label: "Charakter" },
     { id: "chat", label: "Chat" },
     { id: "whiteboard", label: "Whiteboard" },
+    { id: "notebook", label: "Notizbuch" },
   ];
 
   return (
@@ -240,13 +397,34 @@ export default function Session() {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, fontSize: "40px", color: "#fff4d0" }}>Session {sessionId}</h1>
+          <h1 style={{ margin: 0, fontSize: "40px", color: "#fff4d0" }}>
+            {sessionMeta?.title || `Session ${sessionId}`}
+          </h1>
           <p style={{ margin: "6px 0 0", color: "rgba(247, 241, 222, 0.72)" }}>
             {players.length} Spieler verbunden · Kanalstatus: {channelStatus}
           </p>
+          {sessionMeta?.description && (
+            <p style={{ margin: "8px 0 0", color: "rgba(247, 241, 222, 0.58)" }}>
+              {sessionMeta.description}
+            </p>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <Link
+            to="/"
+            style={{
+              padding: "12px 18px",
+              borderRadius: "999px",
+              border: "1px solid rgba(233, 204, 145, 0.2)",
+              background: "rgba(245, 225, 185, 0.06)",
+              color: "#fff3d2",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            Startseite
+          </Link>
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -283,9 +461,6 @@ export default function Session() {
 
         {activeTab === "chat" && (
           <Dice
-            // Dice ist bewusst "dumm" genug, dass es nur Callbacks und Daten bekommt.
-            // Dadurch bleibt die Session fuer Realtime zustaendig,
-            // die Dice-Komponente aber fuer Darstellung und Eingabe.
             onRoll={rollDice}
             onSendMessage={sendMessage}
             results={diceResults}
@@ -301,6 +476,15 @@ export default function Session() {
             boardState={whiteboardState}
             currentUserId={currentUserId}
             players={players}
+          />
+        )}
+
+        {activeTab === "notebook" && (
+          <Notebook
+            currentUserId={currentUserId}
+            players={players}
+            notebookState={notebookState}
+            onSavePage={saveNotebookPage}
           />
         )}
       </div>
