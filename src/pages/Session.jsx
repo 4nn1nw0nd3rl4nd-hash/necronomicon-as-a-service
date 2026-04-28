@@ -31,6 +31,17 @@ export default function Session() {
   const processedWhiteboardActionIdsRef = useRef(new Set());
   const processedNotebookActionIdsRef = useRef(new Set());
 
+  const getDisplayName = (player) => {
+    if (!player) return "Unbekannt";
+    if (player.display_name?.trim()) return player.display_name.trim();
+    if (player.user_id === currentUserId) {
+      const currentUser = userRef.current;
+      if (currentUser?.user_metadata?.username) return currentUser.user_metadata.username;
+      if (currentUser?.email) return currentUser.email;
+    }
+    return player.user_id?.slice(0, 8) || "Unbekannt";
+  };
+
   const appendUniqueDiceResult = (payload) => {
     setDiceResults((prev) => {
       if (prev.some((entry) => entry.id === payload.id)) {
@@ -76,6 +87,7 @@ export default function Session() {
         .select(`
             role,
             user_id,
+            display_name,
             characters (
               id,
               name,
@@ -181,6 +193,24 @@ export default function Session() {
 
       let playerRows = initialPlayerRows || [];
       let me = playerRows.find((player) => player.user_id === user.id);
+      const displayName = user.user_metadata?.username?.trim() || user.email || user.id.slice(0, 8);
+
+      if (me && me.display_name !== displayName) {
+        const { error: syncDisplayNameError } = await supabase
+          .from("session_players")
+          .update({ display_name: displayName })
+          .eq("session_id", sessionPlayerId)
+          .eq("user_id", user.id);
+
+        if (syncDisplayNameError) {
+          console.error(syncDisplayNameError);
+        } else {
+          me = { ...me, display_name: displayName };
+          playerRows = playerRows.map((player) =>
+            player.user_id === user.id ? { ...player, display_name: displayName } : player
+          );
+        }
+      }
 
       if (!me) {
         const defaultRole = sessionRow?.created_by === user.id ? "gm" : "player";
@@ -188,6 +218,7 @@ export default function Session() {
           session_id: sessionPlayerId,
           user_id: user.id,
           role: defaultRole,
+          display_name: displayName,
         };
         const { data: existingMembership, error: memberLookupError } = await supabase
           .from("session_players")
@@ -204,7 +235,7 @@ export default function Session() {
         const { error: joinError } = existingMembership
           ? await supabase
               .from("session_players")
-              .update({ role: defaultRole })
+              .update({ role: defaultRole, display_name: displayName })
               .eq("id", existingMembership.id)
           : await supabase.from("session_players").insert(membershipPayload);
 
@@ -419,6 +450,9 @@ export default function Session() {
     { id: "notebook", label: "Notizbuch" },
   ];
 
+  const gmPlayers = players.filter((player) => player.role === "gm");
+  const connectedPlayers = players.filter((player) => player.role !== "gm");
+
   return (
     <div
       style={{
@@ -447,7 +481,16 @@ export default function Session() {
             {sessionMeta?.title || `Session ${sessionId}`}
           </h1>
           <p style={{ margin: "6px 0 0", color: "rgba(247, 241, 222, 0.72)" }}>
-            {players.length} Spieler verbunden · Kanalstatus: {channelStatus}
+            DM:{" "}
+            {gmPlayers.length > 0
+              ? gmPlayers.map((player) => getDisplayName(player)).join(", ")
+              : "Noch kein DM verbunden"}
+          </p>
+          <p style={{ margin: "4px 0 0", color: "rgba(247, 241, 222, 0.64)" }}>
+            Spieler:{" "}
+            {connectedPlayers.length > 0
+              ? connectedPlayers.map((player) => getDisplayName(player)).join(", ")
+              : "Noch keine Spieler verbunden"}
           </p>
           {sessionMeta?.description && (
             <p style={{ margin: "8px 0 0", color: "rgba(247, 241, 222, 0.58)" }}>

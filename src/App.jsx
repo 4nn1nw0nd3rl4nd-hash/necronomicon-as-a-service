@@ -14,6 +14,7 @@ function HomePage() {
   const [status, setStatus] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
   const [authUser, setAuthUser] = useState(null);
 
   const normalizedSessionId = sessionId.trim();
@@ -175,14 +176,21 @@ function HomePage() {
 
   const handleSignUp = async () => {
     const email = authEmail.trim();
-    if (!email || !authPassword) {
-      setStatus("Bitte E-Mail und Passwort eingeben.");
+    const username = authUsername.trim();
+
+    if (!email || !authPassword || !username) {
+      setStatus("Bitte Username, E-Mail und Passwort eingeben.");
       return;
     }
 
     const { error } = await supabase.auth.signUp({
       email,
       password: authPassword,
+      options: {
+        data: {
+          username,
+        },
+      },
     });
 
     if (error) {
@@ -192,6 +200,7 @@ function HomePage() {
 
     setStatus("Konto erstellt. Falls aktiviert, pruefe deine E-Mails zur Bestaetigung.");
     setAuthPassword("");
+    setAuthUsername("");
   };
 
   const handleSignOut = async () => {
@@ -221,13 +230,23 @@ function HomePage() {
               <span className="session-card-label">Login</span>
               {authUser ? (
                 <>
-                  <p className="auth-user">Eingeloggt als {authUser.email || authUser.id}</p>
+                  <p className="auth-user">
+                    Eingeloggt als{" "}
+                    {authUser.user_metadata?.username || authUser.email || authUser.id}
+                  </p>
                   <button type="button" className="secondary-button" onClick={handleSignOut}>
                     Ausloggen
                   </button>
                 </>
               ) : (
                 <>
+                  <input
+                    className="session-input"
+                    value={authUsername}
+                    onChange={(event) => setAuthUsername(event.target.value)}
+                    placeholder="Username (fuer Registrierung)"
+                    type="text"
+                  />
                   <input
                     className="session-input"
                     value={authEmail}
