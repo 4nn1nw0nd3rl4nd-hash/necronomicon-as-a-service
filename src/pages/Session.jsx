@@ -70,7 +70,7 @@ export default function Session() {
   };
 
   useEffect(() => {
-    const fetchPlayers = async () => {
+    const fetchPlayers = async (sessionPlayerId) => {
       return supabase
         .from("session_players")
         .select(`
@@ -83,7 +83,7 @@ export default function Session() {
               data
             )
           `)
-        .eq("session_id", sessionId);
+        .eq("session_id", sessionPlayerId);
     };
 
     const load = async () => {
@@ -101,7 +101,6 @@ export default function Session() {
         { data: whiteboardImages, error: imagesError },
         { data: whiteboardNotes, error: notesError },
         { data: whiteboardTokens, error: tokensError },
-        { data: initialPlayerRows, error: playerError },
       ] = await Promise.all([
         supabase
           .from("sessions")
@@ -126,8 +125,10 @@ export default function Session() {
           .from("whiteboard_tokens")
           .select("user_id, x, y")
           .eq("session_slug", sessionId),
-        fetchPlayers(),
       ]);
+
+      const sessionPlayerId = sessionRow?.id || sessionId;
+      const { data: initialPlayerRows, error: playerError } = await fetchPlayers(sessionPlayerId);
 
       if (sessionRow) {
         setSessionMeta(sessionRow);
@@ -184,14 +185,14 @@ export default function Session() {
       if (!me) {
         const defaultRole = sessionRow?.created_by === user.id ? "gm" : "player";
         const membershipPayload = {
-          session_id: sessionId,
+          session_id: sessionPlayerId,
           user_id: user.id,
           role: defaultRole,
         };
         const { data: existingMembership, error: memberLookupError } = await supabase
           .from("session_players")
           .select("id")
-          .eq("session_id", sessionId)
+          .eq("session_id", sessionPlayerId)
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -210,7 +211,7 @@ export default function Session() {
         if (joinError) {
           console.error(joinError);
         } else {
-          const { data: refreshedPlayers, error: refreshPlayersError } = await fetchPlayers();
+          const { data: refreshedPlayers, error: refreshPlayersError } = await fetchPlayers(sessionPlayerId);
           if (refreshPlayersError) {
             console.error(refreshPlayersError);
           } else {
