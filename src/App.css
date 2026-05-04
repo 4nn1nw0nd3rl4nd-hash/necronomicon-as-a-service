@@ -340,3 +340,11 @@
     align-items: start;
   }
 }
+
+.app-version {
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.75);
+  letter-spacing: 0.04em;
+}
