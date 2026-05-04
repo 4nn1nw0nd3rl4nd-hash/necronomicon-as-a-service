@@ -5,6 +5,8 @@ import "./App.css";
 import { supabase } from "./supabaseClient";
 import Session from "./pages/Session.jsx";
 
+const APP_VERSION = __APP_VERSION__;
+
 function HomePage() {
   const navigate = useNavigate();
   const [sessionId, setSessionId] = useState("");
@@ -400,6 +402,8 @@ function HomePage() {
           )}
         </div>
       </section>
+
+      <footer className="app-version" aria-label="Build-Version">Build: {APP_VERSION}</footer>
     </main>
   );
 }
