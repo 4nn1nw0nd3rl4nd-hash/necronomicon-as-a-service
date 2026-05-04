@@ -139,7 +139,7 @@ export default function Session() {
           .eq("session_slug", sessionId),
       ]);
 
-      const sessionPlayerId = sessionRow?.id || sessionId;
+      const sessionPlayerId = sessionRow?.slug || sessionId;
       const { data: initialPlayerRows, error: playerError } = await fetchPlayers(sessionPlayerId);
 
       if (sessionRow) {
