@@ -259,6 +259,30 @@
   text-align: left;
 }
 
+
+.session-preview {
+  position: relative;
+}
+
+.session-delete-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(233, 204, 145, 0.24);
+  border-radius: 999px;
+  background: rgba(245, 225, 185, 0.08);
+  color: #fff3d2;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.session-delete-button:hover {
+  background: rgba(255, 120, 120, 0.18);
+  border-color: rgba(255, 160, 160, 0.45);
+}
 .session-preview.empty {
   grid-column: 1 / -1;
 }
