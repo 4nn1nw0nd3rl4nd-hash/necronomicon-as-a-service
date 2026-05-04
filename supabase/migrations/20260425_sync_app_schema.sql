@@ -608,3 +608,64 @@ for update
 to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+
+create table if not exists public.app_admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+alter table public.app_admins enable row level security;
+
+drop policy if exists "app_admins_select_authenticated" on public.app_admins;
+create policy "app_admins_select_authenticated"
+on public.app_admins
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+create or replace function public.is_app_admin(check_user_id uuid)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.app_admins admins
+    where admins.user_id = check_user_id
+  );
+$$;
+
+drop policy if exists "sessions_delete_owner_or_admin" on public.sessions;
+create policy "sessions_delete_owner_or_admin"
+on public.sessions
+for delete
+to authenticated
+using (
+  auth.uid() = created_by
+  or public.is_app_admin(auth.uid())
+);
+
+drop policy if exists "session_players_update_self_or_admin" on public.session_players;
+create policy "session_players_update_self_or_admin"
+on public.session_players
+for update
+to authenticated
+using (
+  auth.uid() = user_id
+  or public.is_app_admin(auth.uid())
+)
+with check (
+  auth.uid() = user_id
+  or public.is_app_admin(auth.uid())
+);
+
+drop policy if exists "session_players_delete_self_or_admin" on public.session_players;
+create policy "session_players_delete_self_or_admin"
+on public.session_players
+for delete
+to authenticated
+using (
+  auth.uid() = user_id
+  or public.is_app_admin(auth.uid())
+);

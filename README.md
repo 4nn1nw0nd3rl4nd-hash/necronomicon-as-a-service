@@ -197,3 +197,22 @@ Der naechste sinnvolle Refactoring-Schritt waere, `src/pages/Dice.jsx` selbst no
 - `DiceSidebar`
 - `DiceFeed`
 - `DiceComposer`
+
+## Admin fuer Session-Loeschungen einrichten
+
+Wenn ein eingeloggter User Sessions loeschen duerfen soll, muss er in `public.app_admins` eingetragen werden.
+
+Beispiel in Supabase SQL Editor:
+
+```sql
+insert into public.app_admins (user_id)
+values ('<AUTH_USER_UUID>')
+on conflict (user_id) do nothing;
+```
+
+Danach darf der User:
+
+- Sessions loeschen (`public.sessions`) auch wenn er sie nicht selbst erstellt hat.
+- Session-Spieler-Eintraege aktualisieren/loeschen (`public.session_players`).
+
+Hinweis: Session-Ersteller duerfen ihre eigenen Sessions weiterhin loeschen.
