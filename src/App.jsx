@@ -24,7 +24,7 @@ function HomePage() {
   const loadSessions = async () => {
     const { data, error } = await supabase
       .from("sessions")
-      .select("slug, title, description, created_at, updated_at")
+      .select("id, slug, title, description, created_at, updated_at")
       .order("updated_at", { ascending: false })
       .limit(12);
 
@@ -156,7 +156,8 @@ function HomePage() {
   };
 
 
-  const handleDeleteSession = async (slug) => {
+  const handleDeleteSession = async (session) => {
+    const slug = session.slug;
     if (!authUser) {
       setStatus("Bitte einloggen, um Sessions zu loeschen.");
       return;
@@ -165,7 +166,11 @@ function HomePage() {
     const shouldDelete = window.confirm(`Willst du die Session "${slug}" wirklich loeschen?`);
     if (!shouldDelete) return;
 
-    const { error } = await supabase.from("sessions").delete().eq("slug", slug);
+    const { error } = await supabase
+      .from("sessions")
+      .delete()
+      .eq("id", session.id ?? "")
+      .eq("slug", slug);
 
     if (error) {
       setStatus(`Session konnte nicht geloescht werden: ${error.message}`);
@@ -413,7 +418,7 @@ function HomePage() {
                   className="session-delete-button"
                   aria-label={`Session ${session.slug} loeschen`}
                   title="Session loeschen"
-                  onClick={() => handleDeleteSession(session.slug)}
+                  onClick={() => handleDeleteSession(session)}
                 >
                   ×
                 </button>
