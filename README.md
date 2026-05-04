@@ -202,12 +202,31 @@ Der naechste sinnvolle Refactoring-Schritt waere, `src/pages/Dice.jsx` selbst no
 
 Wenn ein eingeloggter User Sessions loeschen duerfen soll, muss er in `public.app_admins` eingetragen werden.
 
-Beispiel in Supabase SQL Editor:
+Beispiel in Supabase SQL Editor (mit bekannter User-UUID):
 
 ```sql
 insert into public.app_admins (user_id)
 values ('<AUTH_USER_UUID>')
 on conflict (user_id) do nothing;
+```
+
+Beispiel direkt ueber E-Mail (z. B. `comp90002@gmail.com`):
+
+```sql
+insert into public.app_admins (user_id)
+select id
+from auth.users
+where email = 'comp90002@gmail.com'
+on conflict (user_id) do nothing;
+```
+
+Optionaler Check:
+
+```sql
+select u.email, a.added_at
+from public.app_admins a
+join auth.users u on u.id = a.user_id
+where u.email = 'comp90002@gmail.com';
 ```
 
 Danach darf der User:
