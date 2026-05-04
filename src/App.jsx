@@ -155,6 +155,27 @@ function HomePage() {
     }
   };
 
+
+  const handleDeleteSession = async (slug) => {
+    if (!authUser) {
+      setStatus("Bitte einloggen, um Sessions zu loeschen.");
+      return;
+    }
+
+    const shouldDelete = window.confirm(`Willst du die Session "${slug}" wirklich loeschen?`);
+    if (!shouldDelete) return;
+
+    const { error } = await supabase.from("sessions").delete().eq("slug", slug);
+
+    if (error) {
+      setStatus(`Session konnte nicht geloescht werden: ${error.message}`);
+      return;
+    }
+
+    setStatus(`Session "${slug}" wurde geloescht.`);
+    await loadSessions();
+  };
+
   const handleSignIn = async () => {
     const email = authEmail.trim();
     if (!email || !authPassword) {
@@ -387,6 +408,15 @@ function HomePage() {
           ) : (
             sessions.map((session) => (
               <article key={session.slug} className="session-preview">
+                <button
+                  type="button"
+                  className="session-delete-button"
+                  aria-label={`Session ${session.slug} loeschen`}
+                  title="Session loeschen"
+                  onClick={() => handleDeleteSession(session.slug)}
+                >
+                  ×
+                </button>
                 <p className="session-preview-slug">{session.slug}</p>
                 <h3>{session.title || session.slug}</h3>
                 <p>{session.description || "Noch keine Beschreibung fuer diese Runde."}</p>
