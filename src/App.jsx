@@ -247,11 +247,7 @@ function HomePage() {
       <section className="landing-hero">
         <div className="landing-copy">
           <p className="landing-eyebrow">Necronomicon as a Service</p>
-          <h1>Starte deine Session wie ein beschwoerenes Ritual.</h1>
-          <p className="landing-intro">
-            Ein Portal fuer Pen-and-Paper-Runden mit Charakterboegen, Dice Chat,
-            Whiteboard, Notizbuch und gemeinsamem Session-Raum.
-          </p>
+          <h1>Necronomicon as a Service</h1>
 
           <div className="landing-actions">
             <div className="auth-card">
@@ -358,38 +354,20 @@ function HomePage() {
           </div>
         </div>
 
-        <aside className="landing-panel">
+        <aside className="landing-panel" aria-hidden="true">
           <div className="panel-glow" />
-          <div className="ritual-grid">
-            <div className="ritual-card">
-              <span className="ritual-title">Charaktere</span>
-              <p>Call of Cthulhu und Splinter Portals in einem Raum.</p>
-            </div>
-            <div className="ritual-card">
-              <span className="ritual-title">Dice Chat</span>
-              <p>Wuerfeln und schreiben im selben Verlauf.</p>
-            </div>
-            <div className="ritual-card">
-              <span className="ritual-title">Whiteboard und Notizen</span>
-              <p>Taktische Flaeche und gemeinsames Notizbuch pro Session.</p>
+          <div className="arcane-book">
+            <div className="book-spine" />
+            <div className="book-pages">
+              <span className="sigil">✶</span>
+              <span className="sigil">⚄</span>
+              <span className="sigil">⚅</span>
             </div>
           </div>
+          <div className="floating-dice">
+            <span>⚀</span><span>⚁</span><span>⚂</span><span>⚃</span>
+          </div>
         </aside>
-      </section>
-
-      <section className="feature-strip">
-        <article>
-          <h2>Schneller Einstieg</h2>
-          <p>Session-ID eingeben, Route oeffnen, Runde starten.</p>
-        </article>
-        <article>
-          <h2>Gemeinsamer Spielraum</h2>
-          <p>Wuerfel, Chat, Whiteboard und Notizen leben in derselben Session.</p>
-        </article>
-        <article>
-          <h2>Fokus auf Atmosphaere</h2>
-          <p>Kein graues Tooling, sondern ein Einstieg mit Spielgefuehl.</p>
-        </article>
       </section>
 
       <section className="session-list">
@@ -398,10 +376,7 @@ function HomePage() {
             <p className="landing-eyebrow">Offene Runden</p>
             <h2>Alle Sessions auf einen Blick</h2>
           </div>
-          <p>
-            Bestehende Runden kannst du hier direkt ansehen. Wenn du oben eine neue Session-ID
-            eintraegst, wird sie automatisch in Supabase angelegt.
-          </p>
+          <p>Beschwoerbare Runden.</p>
         </div>
 
         <div className="session-grid">
