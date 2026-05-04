@@ -3,6 +3,14 @@ import { Link, Route, Routes, useNavigate } from "react-router-dom";
 
 import "./App.css";
 import { supabase } from "./supabaseClient";
+import {
+  assignGmRole,
+  deleteSessionBySlug,
+  findPlayerMembership,
+  findSessionIdBySlug,
+  listRecentSessions,
+  upsertSessionBySlug,
+} from "./lib/sessionRepository";
 import Session from "./pages/Session.jsx";
 
 const APP_VERSION = __APP_VERSION__;
@@ -22,11 +30,7 @@ function HomePage() {
   const normalizedSessionId = sessionId.trim();
 
   const loadSessions = async () => {
-    const { data, error } = await supabase
-      .from("sessions")
-      .select("id, slug, title, description, created_at, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(12);
+    const { data, error } = await listRecentSessions();
 
     if (error) {
       console.error(error);
@@ -84,7 +88,12 @@ function HomePage() {
       created_by: user.id,
     };
 
-    const { error } = await supabase.from("sessions").upsert(payload, { onConflict: "slug" });
+    const { error } = await upsertSessionBySlug({
+      slug,
+      title: payload.title,
+      description: payload.description,
+      userId: user.id,
+    });
 
     if (error) {
       console.error(error);
@@ -92,11 +101,7 @@ function HomePage() {
       return false;
     }
 
-    const { data: sessionRow, error: sessionLookupError } = await supabase
-      .from("sessions")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+    const { data: sessionRow, error: sessionLookupError } = await findSessionIdBySlug(slug);
 
     if (sessionLookupError) {
       console.error(sessionLookupError);
@@ -106,12 +111,10 @@ function HomePage() {
 
     const sessionPlayerId = sessionRow?.id || slug;
 
-    const { data: existingMembership, error: memberLookupError } = await supabase
-      .from("session_players")
-      .select("id")
-      .eq("session_id", sessionPlayerId)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const { data: existingMembership, error: memberLookupError } = await findPlayerMembership({
+      sessionId: sessionPlayerId,
+      userId: user.id,
+    });
 
     if (memberLookupError) {
       console.error(memberLookupError);
@@ -119,15 +122,11 @@ function HomePage() {
       return false;
     }
 
-    const membershipPayload = {
-      session_id: sessionPlayerId,
-      user_id: user.id,
-      role: "gm",
-    };
-
-    const { error: gmError } = existingMembership
-      ? await supabase.from("session_players").update({ role: "gm" }).eq("id", existingMembership.id)
-      : await supabase.from("session_players").insert(membershipPayload);
+    const { error: gmError } = await assignGmRole({
+      membershipId: existingMembership?.id,
+      sessionId: sessionPlayerId,
+      userId: user.id,
+    });
 
     if (gmError) {
       console.error(gmError);
@@ -166,11 +165,10 @@ function HomePage() {
     const shouldDelete = window.confirm(`Willst du die Session "${slug}" wirklich loeschen?`);
     if (!shouldDelete) return;
 
-    const { error } = await supabase
-      .from("sessions")
-      .delete()
-      .eq("id", session.id ?? "")
-      .eq("slug", slug);
+    const { error } = await deleteSessionBySlug({
+      sessionId: session.id,
+      slug,
+    });
 
     if (error) {
       setStatus(`Session konnte nicht geloescht werden: ${error.message}`);

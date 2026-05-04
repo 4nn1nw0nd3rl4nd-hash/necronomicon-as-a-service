@@ -177,6 +177,31 @@ Wenn du spaeter eine neue Regel hinzufuegen willst, ist das typische Vorgehen:
 4. In `src/pages/Dice.jsx`
    den Button oder die UI fuer den Modus anzeigen
 
+
+## Datenbank-Architektur (neu dokumentiert)
+
+Fuer die Session-Verwaltung wurde der Datenbankzugriff in ein kleines Repository ausgelagert:
+
+- `src/lib/sessionRepository.js`
+
+Dort liegen jetzt die zentralen Operationen fuer:
+
+- Session-Liste laden
+- Session per `slug` anlegen/aktualisieren
+- Session-ID aufloesen
+- Membership (`session_players`) lesen/setzen
+- Session loeschen
+
+Warum das hilfreich ist:
+
+- `App.jsx` ist lesbarer (weniger SQL-Details im UI-Flow)
+- Datenbanklogik ist an einer Stelle gebuendelt
+- spaetere Tests/Mocking werden einfacher
+
+Eine detaillierte DB-Uebersicht mit Tabellen und Datenfluss steht in:
+
+- `supabase/README.md`
+
 ## Starten
 
 ```bash
