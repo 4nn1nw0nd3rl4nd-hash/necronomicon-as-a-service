@@ -354,6 +354,91 @@ button {
   padding: var(--space-xl) var(--space-lg);
 }
 
+.profile-page {
+  width: 100%;
+  max-width: 42rem;
+}
+
+.profile-title {
+  margin: 0 0 var(--space-xl);
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.profile-card,
+.profile-status {
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.profile-status p {
+  margin: 0;
+}
+
+.profile-details {
+  margin: 0;
+}
+
+.profile-detail {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr);
+  gap: var(--space-lg);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.profile-detail:first-child {
+  padding-top: 0;
+}
+
+.profile-detail:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.profile-detail dt {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.profile-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-role {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-accent);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.profile-retry {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.profile-retry:hover {
+  border-color: var(--color-accent);
+}
+
+.profile-retry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
 @media (max-width: 48rem) {
   .landing-page {
     padding-inline: var(--space-md);
@@ -386,5 +471,15 @@ button {
 
   .app-main {
     padding: var(--space-lg) var(--space-md);
+  }
+
+  .profile-card,
+  .profile-status {
+    padding: var(--space-lg);
+  }
+
+  .profile-detail {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
   }
 }
