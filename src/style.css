@@ -215,6 +215,15 @@ button {
   line-height: 1.5;
 }
 
+.auth-success {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-accent);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
 .auth-alternate {
   display: block;
   margin-top: var(--space-lg);
