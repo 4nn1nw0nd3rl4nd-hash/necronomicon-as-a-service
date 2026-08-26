@@ -1,6 +1,6 @@
-# Necronomicon
+# Necronomicon-as-a-Service
 
-Necronomicon ist eine Online-Plattform für Pen-&-Paper-Runden.
+Necronomicon-as-a-Service ist eine Online-Plattform für Pen-&-Paper-Runden.
 
 Die Plattform soll Spielleitungen und Spielern Werkzeuge für die Organisation und Durchführung von Runden bereitstellen. Dazu gehören unter anderem Rundenverwaltung, Charaktere, Würfeln, In-Character-Chat, Journal und später ein einfacher virtueller Spieltisch.
 
