@@ -265,6 +265,12 @@ button {
   white-space: nowrap;
 }
 
+.app-header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
 .app-nav {
   display: flex;
   align-items: center;
@@ -288,6 +294,40 @@ button {
   border-color: var(--color-border);
   background-color: var(--color-surface-alt);
   color: var(--color-accent);
+}
+
+.app-logout {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.app-logout:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.app-logout:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.app-logout:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.app-logout-error {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: calc(var(--space-sm) * -1) auto var(--space-md);
+  padding: 0 var(--space-lg);
+  color: #d9b8b0;
+  font-size: 0.9rem;
 }
 
 .app-main {
@@ -315,6 +355,16 @@ button {
 
   .app-nav {
     flex-wrap: wrap;
+  }
+
+  .app-header-controls {
+    align-items: flex-start;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .app-logout-error {
+    padding-inline: var(--space-md);
   }
 
   .app-main {
