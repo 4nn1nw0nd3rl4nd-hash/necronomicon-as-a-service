@@ -58,6 +58,16 @@ button {
   font: inherit;
 }
 
+.auth-loading-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-xl) var(--space-md);
+  background-color: var(--color-background);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
 .landing-page {
   display: grid;
   min-height: 100vh;

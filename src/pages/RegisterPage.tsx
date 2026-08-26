@@ -1,38 +1,11 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { AuthError } from '@supabase/supabase-js'
 import { Link, useNavigate } from 'react-router-dom'
+import {
+  authErrorMessages,
+  getRegistrationErrorMessage,
+} from '../lib/authErrors'
 import { supabase } from '../lib/supabase'
-
-function getRegistrationError(error: AuthError) {
-  const message = error.message.toLowerCase()
-
-  if (
-    error.code === 'user_already_exists' ||
-    error.code === 'email_exists' ||
-    message.includes('already registered')
-  ) {
-    return 'Diese E-Mail-Adresse ist bereits registriert.'
-  }
-
-  if (
-    error.code === 'weak_password' ||
-    error.code === 'password_too_short' ||
-    message.includes('password should be')
-  ) {
-    return 'Das Passwort erfüllt die Anforderungen nicht.'
-  }
-
-  if (
-    message.includes('profiles_username_unique_ci') ||
-    message.includes('duplicate key') ||
-    message.includes('database error saving new user')
-  ) {
-    return 'Dieser Benutzername ist bereits vergeben.'
-  }
-
-  return 'Die Registrierung ist fehlgeschlagen. Bitte versuche es erneut.'
-}
 
 function RegisterPage() {
   const [username, setUsername] = useState('')
@@ -71,7 +44,7 @@ function RegisterPage() {
     }
 
     if (password.length < 6) {
-      setErrorMessage('Das Passwort erfüllt die Anforderungen nicht.')
+      setErrorMessage(authErrorMessages.invalidPassword)
       return
     }
 
@@ -90,7 +63,7 @@ function RegisterPage() {
       })
 
       if (error) {
-        setErrorMessage(getRegistrationError(error))
+        setErrorMessage(getRegistrationErrorMessage(error))
         return
       }
 
@@ -103,9 +76,7 @@ function RegisterPage() {
         'Registrierung erfolgreich. Bitte bestätige deine E-Mail-Adresse.',
       )
     } catch {
-      setErrorMessage(
-        'Die Registrierung ist fehlgeschlagen. Bitte versuche es erneut.',
-      )
+      setErrorMessage(getRegistrationErrorMessage())
     } finally {
       setIsSubmitting(false)
     }

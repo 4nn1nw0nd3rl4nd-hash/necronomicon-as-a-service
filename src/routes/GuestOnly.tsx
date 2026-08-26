@@ -1,11 +1,12 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import AuthLoadingScreen from '../components/AuthLoadingScreen'
 
 function GuestOnly() {
   const { session, isLoading } = useAuth()
 
   if (isLoading) {
-    return <p>Session wird geprüft...</p>
+    return <AuthLoadingScreen />
   }
 
   if (session) {

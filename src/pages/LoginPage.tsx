@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { getLoginErrorMessage } from '../lib/authErrors'
 import { supabase } from '../lib/supabase'
 
 function getDestination(state: unknown) {
@@ -53,19 +54,13 @@ function LoginPage() {
       })
 
       if (error) {
-        setErrorMessage(
-          error.code === 'invalid_credentials'
-            ? 'E-Mail oder Passwort ist falsch.'
-            : 'Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.',
-        )
+        setErrorMessage(getLoginErrorMessage(error))
         return
       }
 
       navigate(getDestination(location.state), { replace: true })
     } catch {
-      setErrorMessage(
-        'Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.',
-      )
+      setErrorMessage(getLoginErrorMessage())
     } finally {
       setIsSubmitting(false)
     }
