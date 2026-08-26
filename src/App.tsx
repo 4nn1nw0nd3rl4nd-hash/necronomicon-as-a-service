@@ -8,6 +8,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
 import RoundsPage from './pages/RoundsPage'
+import RequireAuth from './routes/RequireAuth'
 
 function App() {
   return (
@@ -15,11 +16,13 @@ function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/app" element={<AppLayout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="rounds" element={<RoundsPage />} />
-        <Route path="admin" element={<AdminPage />} />
+      <Route element={<RequireAuth />}>
+        <Route path="/app" element={<AppLayout />}>
+          <Route index element={<DashboardPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="rounds" element={<RoundsPage />} />
+          <Route path="admin" element={<AdminPage />} />
+        </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
