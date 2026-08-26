@@ -38,6 +38,11 @@ function RegisterPage() {
     setErrorMessage(null)
     setSuccessMessage(null)
 
+    if (!normalizedDisplayName) {
+      setErrorMessage('Bitte gib einen Anzeigenamen ein.')
+      return
+    }
+
     if (
       !normalizedUsername ||
       !normalizedEmail ||
@@ -67,7 +72,7 @@ function RegisterPage() {
         options: {
           data: {
             username: normalizedUsername,
-            display_name: normalizedDisplayName || null,
+            display_name: normalizedDisplayName,
           },
         },
       })
@@ -116,6 +121,7 @@ function RegisterPage() {
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
               autoComplete="name"
+              required
             />
           </label>
           <label className="auth-field">

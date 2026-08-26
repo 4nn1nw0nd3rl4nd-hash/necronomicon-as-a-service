@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { useProfile } from '../hooks/useProfile'
 import type { Profile } from '../types/profile'
@@ -12,7 +14,68 @@ function getRoleLabel(profile: Profile) {
 
 function ProfilePage() {
   const { user } = useAuth()
-  const { profile, isLoading, error, reload } = useProfile(user?.id)
+  const {
+    profile,
+    isLoading,
+    error,
+    reload,
+    updateDisplayName,
+    isSaving,
+    saveError,
+  } = useProfile(user?.id)
+  const [displayNameDraft, setDisplayNameDraft] = useState<{
+    profileUpdatedAt: string
+    value: string
+  } | null>(null)
+  const [saveSucceeded, setSaveSucceeded] = useState(false)
+  const [displayNameError, setDisplayNameError] = useState<string | null>(
+    null,
+  )
+
+  const displayName =
+    profile && displayNameDraft?.profileUpdatedAt === profile.updated_at
+      ? displayNameDraft.value
+      : (profile?.display_name ?? '')
+  const normalizedDisplayName = displayName.trim()
+  const isDisplayNameChanged = Boolean(
+    profile && normalizedDisplayName !== profile.display_name,
+  )
+
+  const handleDisplayNameChange = (value: string) => {
+    if (!profile) {
+      return
+    }
+
+    setDisplayNameDraft({
+      profileUpdatedAt: profile.updated_at,
+      value,
+    })
+    setSaveSucceeded(false)
+    setDisplayNameError(null)
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!isDisplayNameChanged || isSaving) {
+      return
+    }
+
+    setSaveSucceeded(false)
+
+    if (!normalizedDisplayName) {
+      setDisplayNameError('Der Anzeigename darf nicht leer sein.')
+      return
+    }
+
+    setDisplayNameError(null)
+    const updatedProfile = await updateDisplayName(displayName)
+
+    if (updatedProfile) {
+      setDisplayNameDraft(null)
+      setSaveSucceeded(true)
+    }
+  }
 
   let content
 
@@ -42,8 +105,43 @@ function ProfilePage() {
             <dd>{profile.username}</dd>
           </div>
           <div className="profile-detail">
-            <dt>Anzeigename</dt>
-            <dd>{profile.display_name?.trim() || 'Nicht gesetzt'}</dd>
+            <dt>
+              <label htmlFor="display-name">Anzeigename</label>
+            </dt>
+            <dd>
+              <form
+                className="profile-display-form"
+                onSubmit={handleSubmit}
+              >
+                <div className="profile-display-controls">
+                  <input
+                    id="display-name"
+                    type="text"
+                    value={displayName}
+                    onChange={(event) =>
+                      handleDisplayNameChange(event.target.value)
+                    }
+                  />
+                  <button
+                    className="profile-save"
+                    type="submit"
+                    disabled={!isDisplayNameChanged || isSaving}
+                  >
+                    {isSaving ? 'Speichern...' : 'Speichern'}
+                  </button>
+                </div>
+                {(displayNameError || saveError) && (
+                  <p className="profile-form-error" role="alert">
+                    {displayNameError || saveError}
+                  </p>
+                )}
+                {saveSucceeded && (
+                  <p className="profile-form-success" role="status">
+                    Profil wurde gespeichert.
+                  </p>
+                )}
+              </form>
+            </dd>
           </div>
           <div className="profile-detail">
             <dt>E-Mail</dt>
