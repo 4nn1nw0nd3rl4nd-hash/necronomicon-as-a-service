@@ -57,3 +57,156 @@ a {
 button {
   font: inherit;
 }
+
+.landing-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-xl) var(--space-lg);
+  background:
+    radial-gradient(circle at center, var(--color-surface) 0, transparent 55%),
+    var(--color-background);
+}
+
+.landing-content {
+  width: 100%;
+  max-width: 48rem;
+  text-align: center;
+}
+
+.landing-title {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.landing-title-primary,
+.landing-title-secondary {
+  display: block;
+}
+
+.landing-title-primary {
+  font-size: clamp(2.75rem, 9vw, 6.5rem);
+  letter-spacing: -0.045em;
+}
+
+.landing-title-secondary {
+  margin-top: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: clamp(0.9rem, 2vw, 1.15rem);
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.landing-tagline {
+  margin: var(--space-xl) 0 0;
+  color: var(--color-text-muted);
+  font-size: clamp(1rem, 2.5vw, 1.2rem);
+  line-height: 1.6;
+}
+
+.landing-entry {
+  display: inline-block;
+  margin-top: var(--space-xl);
+  padding: 0.75rem var(--space-xl);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.landing-entry:hover {
+  background-color: var(--color-accent);
+  color: var(--color-background);
+}
+
+.landing-entry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.app-shell {
+  min-height: 100vh;
+  background-color: var(--color-background);
+}
+
+.app-header {
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.app-brand {
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.nav-link {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.nav-link.active {
+  border-color: var(--color-border);
+  background-color: var(--color-surface-alt);
+  color: var(--color-accent);
+}
+
+.app-main {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+@media (max-width: 48rem) {
+  .landing-page {
+    padding-inline: var(--space-md);
+  }
+
+  .app-header-inner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding-inline: var(--space-md);
+  }
+
+  .app-nav {
+    flex-wrap: wrap;
+  }
+
+  .app-main {
+    padding: var(--space-lg) var(--space-md);
+  }
+}
