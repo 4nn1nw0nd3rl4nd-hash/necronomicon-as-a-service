@@ -7,6 +7,16 @@ import {
 } from '../lib/authErrors'
 import { supabase } from '../lib/supabase'
 
+function isPasswordValid(password: string) {
+  return (
+    password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /[0-9]/.test(password) &&
+    /[^A-Za-z0-9\s]/.test(password)
+  )
+}
+
 function RegisterPage() {
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -43,7 +53,7 @@ function RegisterPage() {
       return
     }
 
-    if (password.length < 6) {
+    if (!isPasswordValid(password)) {
       setErrorMessage(authErrorMessages.invalidPassword)
       return
     }
@@ -88,7 +98,7 @@ function RegisterPage() {
         <h1 className="auth-title" id="register-title">
           Registrierung
         </h1>
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <label className="auth-field">
             <span>Benutzername</span>
             <input
@@ -125,9 +135,13 @@ function RegisterPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="new-password"
-              minLength={6}
+              aria-describedby="password-requirements"
               required
             />
+            <small className="auth-hint" id="password-requirements">
+              Mindestens 8 Zeichen mit Groß- und Kleinbuchstaben, Zahl und
+              Sonderzeichen.
+            </small>
           </label>
           <label className="auth-field">
             <span>Passwort bestätigen</span>
@@ -138,7 +152,6 @@ function RegisterPage() {
                 setPasswordConfirmation(event.target.value)
               }
               autoComplete="new-password"
-              minLength={6}
               required
             />
           </label>

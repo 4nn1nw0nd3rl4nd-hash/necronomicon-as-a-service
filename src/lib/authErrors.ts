@@ -4,7 +4,8 @@ export const authErrorMessages = {
   invalidCredentials: 'E-Mail oder Passwort ist falsch.',
   emailAlreadyRegistered: 'Diese E-Mail-Adresse ist bereits registriert.',
   usernameAlreadyTaken: 'Dieser Benutzername ist bereits vergeben.',
-  invalidPassword: 'Das Passwort erfüllt die Anforderungen nicht.',
+  invalidPassword:
+    'Das Passwort muss mindestens 8 Zeichen sowie Groß- und Kleinbuchstaben, eine Zahl und ein Sonderzeichen enthalten.',
   unknownLogin: 'Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.',
   unknownRegistration:
     'Die Registrierung ist fehlgeschlagen. Bitte versuche es erneut.',
