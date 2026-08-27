@@ -365,6 +365,17 @@ button {
   font-weight: 600;
 }
 
+.profile-sections {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.profile-section-title {
+  margin: 0 0 var(--space-md);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
 .profile-card,
 .profile-status {
   padding: var(--space-xl);
@@ -475,6 +486,37 @@ button {
 
 .profile-form-success {
   color: var(--color-accent);
+}
+
+.email-change-current {
+  display: grid;
+  gap: var(--space-xs);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.email-change-current span,
+.email-change-form label {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.email-change-current strong {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.email-change-form {
+  display: grid;
+  gap: var(--space-sm);
+  padding-top: var(--space-lg);
+}
+
+.email-change-pending {
+  display: block;
+  margin-top: var(--space-xs);
+  color: var(--color-text-muted);
 }
 
 .profile-role {
