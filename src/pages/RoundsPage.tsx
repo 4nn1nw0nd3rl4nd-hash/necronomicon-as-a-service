@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import CreateRoundForm from '../components/CreateRoundForm'
 import { useMyRounds } from '../hooks/useMyRounds'
@@ -52,38 +53,44 @@ function RoundsPage() {
       <ul className="rounds-list">
         {rounds.map((membership) => (
           <li key={membership.round_id}>
-            <article className="round-card">
-              <header className="round-card-header">
-                <h2>{membership.round.name}</h2>
-                <div className="round-badges">
-                  <span className="round-badge round-role">
-                    {getRoleLabel(membership.role)}
-                  </span>
-                  <span
-                    className={`round-badge round-status round-status-${membership.round.status}`}
-                  >
-                    {getStatusLabel(membership.round.status)}
-                  </span>
-                </div>
-              </header>
-              {(membership.round.system ||
-                membership.round.appointment) && (
-                <dl className="round-details">
-                  {membership.round.system && (
-                    <div>
-                      <dt>System</dt>
-                      <dd>{membership.round.system}</dd>
-                    </div>
-                  )}
-                  {membership.round.appointment && (
-                    <div>
-                      <dt>Termin</dt>
-                      <dd>{membership.round.appointment}</dd>
-                    </div>
-                  )}
-                </dl>
-              )}
-            </article>
+            <Link
+              className="round-card-link"
+              to={`/app/rounds/${membership.round.id}`}
+              aria-label={`Rundendetails zu ${membership.round.name}`}
+            >
+              <article className="round-card">
+                <header className="round-card-header">
+                  <h2>{membership.round.name}</h2>
+                  <div className="round-badges">
+                    <span className="round-badge round-role">
+                      {getRoleLabel(membership.role)}
+                    </span>
+                    <span
+                      className={`round-badge round-status round-status-${membership.round.status}`}
+                    >
+                      {getStatusLabel(membership.round.status)}
+                    </span>
+                  </div>
+                </header>
+                {(membership.round.system ||
+                  membership.round.appointment) && (
+                  <dl className="round-details">
+                    {membership.round.system && (
+                      <div>
+                        <dt>System</dt>
+                        <dd>{membership.round.system}</dd>
+                      </div>
+                    )}
+                    {membership.round.appointment && (
+                      <div>
+                        <dt>Termin</dt>
+                        <dd>{membership.round.appointment}</dd>
+                      </div>
+                    )}
+                  </dl>
+                )}
+              </article>
+            </Link>
           </li>
         ))}
       </ul>

@@ -695,6 +695,28 @@ button {
   list-style: none;
 }
 
+.round-card-link {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-md);
+  color: inherit;
+  text-decoration: none;
+}
+
+.round-card-link:hover .round-card {
+  border-color: var(--color-accent);
+  background-color: var(--color-surface-alt);
+}
+
+.round-card-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-card-link:focus-visible .round-card {
+  border-color: var(--color-accent);
+}
+
 .round-card {
   height: 100%;
   padding: var(--space-xl);
@@ -768,6 +790,104 @@ button {
   overflow-wrap: anywhere;
 }
 
+.round-detail-page {
+  width: 100%;
+  max-width: 52rem;
+}
+
+.round-detail-back {
+  display: inline-block;
+  margin-bottom: var(--space-lg);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.round-detail-back:hover {
+  color: var(--color-accent);
+}
+
+.round-detail-back:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-detail-state,
+.round-detail-card {
+  margin: 0;
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.round-detail-state {
+  color: var(--color-text-muted);
+}
+
+.round-detail-state p {
+  margin: 0;
+}
+
+.round-detail-header {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.round-detail-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.round-detail-meta {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(14rem, 100%), 1fr)
+  );
+  gap: var(--space-lg);
+  margin: var(--space-xl) 0 0;
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--color-border);
+}
+
+.round-detail-meta div {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.round-detail-meta dt {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.round-detail-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.round-detail-description {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--color-border);
+}
+
+.round-detail-description h2 {
+  margin: 0 0 var(--space-md);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.round-detail-description p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 48rem) {
   .landing-page {
     padding-inline: var(--space-md);
@@ -806,7 +926,9 @@ button {
   .profile-status,
   .create-round-card,
   .round-card,
-  .rounds-state {
+  .rounds-state,
+  .round-detail-state,
+  .round-detail-card {
     padding: var(--space-lg);
   }
 

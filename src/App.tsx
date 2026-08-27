@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
 import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
+import RoundDetailsPage from './pages/RoundDetailsPage'
 import RoundsPage from './pages/RoundsPage'
 import GuestOnly from './routes/GuestOnly'
 import RequireAuth from './routes/RequireAuth'
@@ -24,6 +25,7 @@ function App() {
           <Route index element={<DashboardPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="rounds" element={<RoundsPage />} />
+          <Route path="rounds/:roundId" element={<RoundDetailsPage />} />
           <Route path="admin" element={<AdminPage />} />
         </Route>
       </Route>

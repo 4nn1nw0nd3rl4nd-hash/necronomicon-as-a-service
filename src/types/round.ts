@@ -25,3 +25,13 @@ export type CreateRoundInput = {
   description: string
   appointment: string
 }
+
+export type RoundDetails = RoundSummary & {
+  description: string | null
+}
+
+export type RoundDetailsMembership = {
+  round_id: string
+  role: RoundMembershipRole
+  round: RoundDetails
+}
