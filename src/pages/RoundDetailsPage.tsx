@@ -5,6 +5,8 @@ import AddRoundMemberSearch from '../components/AddRoundMemberSearch'
 import EditRoundForm from '../components/EditRoundForm'
 import { useRoundDetails } from '../hooks/useRoundDetails'
 import { useRoundMembers } from '../hooks/useRoundMembers'
+import { useRemoveRoundPlayer } from '../hooks/useRemoveRoundPlayer'
+import { useTransferGameMaster } from '../hooks/useTransferGameMaster'
 import type {
   RoundMembershipRole,
   RoundStatus,
@@ -27,17 +29,96 @@ function getStatusLabel(status: RoundStatus) {
 function RoundDetailsPage() {
   const { roundId } = useParams<{ roundId: string }>()
   const { user } = useAuth()
-  const { round, membershipRole, isLoading, error, reload } =
-    useRoundDetails(roundId, user?.id)
+  const {
+    round,
+    membershipRole,
+    isLoading,
+    error,
+    reload: reloadRoundDetails,
+  } = useRoundDetails(roundId, user?.id)
   const {
     members,
     isLoading: areMembersLoading,
     error: membersError,
     reload: reloadMembers,
   } = useRoundMembers(roundId, user?.id)
+  const {
+    isSubmitting: isRemovingPlayer,
+    error: removePlayerError,
+    isSuccess: wasPlayerRemoved,
+    removePlayer,
+    resetState: resetRemovePlayer,
+  } = useRemoveRoundPlayer()
+  const {
+    isSubmitting: isTransferringGameMaster,
+    error: transferGameMasterError,
+    isSuccess: wasGameMasterTransferred,
+    transferGameMaster,
+    resetState: resetTransferGameMaster,
+  } = useTransferGameMaster()
   const [editingRoundId, setEditingRoundId] = useState<string | null>(
     null,
   )
+  const [playerPendingRemovalId, setPlayerPendingRemovalId] = useState<
+    string | null
+  >(null)
+  const [playerPendingTransferId, setPlayerPendingTransferId] = useState<
+    string | null
+  >(null)
+
+  const openRemoveConfirmation = (memberId: string) => {
+    resetTransferGameMaster()
+    setPlayerPendingTransferId(null)
+    resetRemovePlayer()
+    setPlayerPendingRemovalId(memberId)
+  }
+
+  const cancelRemoveConfirmation = () => {
+    resetRemovePlayer()
+    setPlayerPendingRemovalId(null)
+  }
+
+  const confirmPlayerRemoval = async (memberUserId: string) => {
+    if (!roundId) {
+      return
+    }
+
+    const wasRemoved = await removePlayer(roundId, memberUserId)
+
+    if (wasRemoved) {
+      setPlayerPendingRemovalId(null)
+      reloadMembers()
+    }
+  }
+
+  const openTransferConfirmation = (memberId: string) => {
+    resetRemovePlayer()
+    setPlayerPendingRemovalId(null)
+    resetTransferGameMaster()
+    setPlayerPendingTransferId(memberId)
+  }
+
+  const cancelTransferConfirmation = () => {
+    resetTransferGameMaster()
+    setPlayerPendingTransferId(null)
+  }
+
+  const confirmGameMasterTransfer = async (newGameMasterId: string) => {
+    if (!roundId) {
+      return
+    }
+
+    const wasTransferred = await transferGameMaster(
+      roundId,
+      newGameMasterId,
+    )
+
+    if (wasTransferred) {
+      setPlayerPendingTransferId(null)
+      reloadMembers()
+      reloadRoundDetails()
+    }
+  }
 
   let content
   let membersContent
@@ -70,15 +151,120 @@ function RoundDetailsPage() {
       <ul className="round-members-list">
         {members.map((member) => (
           <li className="round-member" key={member.id}>
-            <div className="round-member-identity">
-              <strong>{member.profile.display_name}</strong>
-              <span>@{member.profile.username}</span>
+            <div className="round-member-summary">
+              <div className="round-member-identity">
+                <strong>{member.profile.display_name}</strong>
+                <span>@{member.profile.username}</span>
+              </div>
+              <div className="round-member-controls">
+                <span
+                  className={`round-badge round-member-role round-member-role-${member.role}`}
+                >
+                  {getRoleLabel(member.role)}
+                </span>
+                {membershipRole === 'game_master' &&
+                  member.role === 'player' && (
+                    <>
+                      <button
+                        className="round-member-remove-trigger"
+                        type="button"
+                        disabled={
+                          isRemovingPlayer || isTransferringGameMaster
+                        }
+                        onClick={() =>
+                          openRemoveConfirmation(member.id)
+                        }
+                      >
+                        Entfernen
+                      </button>
+                      <button
+                        className="round-member-transfer-trigger"
+                        type="button"
+                        disabled={
+                          isRemovingPlayer || isTransferringGameMaster
+                        }
+                        onClick={() =>
+                          openTransferConfirmation(member.id)
+                        }
+                      >
+                        Spielleitung übertragen
+                      </button>
+                    </>
+                  )}
+              </div>
             </div>
-            <span
-              className={`round-badge round-member-role round-member-role-${member.role}`}
-            >
-              {getRoleLabel(member.role)}
-            </span>
+            {playerPendingRemovalId === member.id && (
+              <div className="round-member-remove-confirmation">
+                <p>
+                  Spieler „{member.profile.display_name}“ wirklich aus
+                  der Runde entfernen?
+                </p>
+                {removePlayerError && (
+                  <p className="profile-form-error" role="alert">
+                    {removePlayerError}
+                  </p>
+                )}
+                <div className="round-member-remove-actions">
+                  <button
+                    className="round-member-remove-confirm"
+                    type="button"
+                    disabled={isRemovingPlayer}
+                    data-submitting={isRemovingPlayer}
+                    onClick={() =>
+                      void confirmPlayerRemoval(member.user_id)
+                    }
+                  >
+                    {isRemovingPlayer ? 'Wird entfernt...' : 'Entfernen'}
+                  </button>
+                  <button
+                    className="round-member-remove-cancel"
+                    type="button"
+                    disabled={isRemovingPlayer}
+                    onClick={cancelRemoveConfirmation}
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            )}
+            {playerPendingTransferId === member.id && (
+              <div className="round-member-transfer-confirmation">
+                <p>
+                  Spielleitung an „{member.profile.display_name}“
+                  übertragen?
+                  <br />
+                  Du wirst anschließend als Spieler geführt.
+                </p>
+                {transferGameMasterError && (
+                  <p className="profile-form-error" role="alert">
+                    {transferGameMasterError}
+                  </p>
+                )}
+                <div className="round-member-transfer-actions">
+                  <button
+                    className="round-member-transfer-confirm"
+                    type="button"
+                    disabled={isTransferringGameMaster}
+                    data-submitting={isTransferringGameMaster}
+                    onClick={() =>
+                      void confirmGameMasterTransfer(member.user_id)
+                    }
+                  >
+                    {isTransferringGameMaster
+                      ? 'Wird übertragen...'
+                      : 'Spielleitung übertragen'}
+                  </button>
+                  <button
+                    className="round-member-transfer-cancel"
+                    type="button"
+                    disabled={isTransferringGameMaster}
+                    onClick={cancelTransferConfirmation}
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -98,7 +284,7 @@ function RoundDetailsPage() {
         <button
           className="rounds-retry"
           type="button"
-          onClick={reload}
+          onClick={reloadRoundDetails}
         >
           Erneut versuchen
         </button>
@@ -113,7 +299,7 @@ function RoundDetailsPage() {
         round={round}
         onUpdated={() => {
           setEditingRoundId(null)
-          reload()
+          reloadRoundDetails()
         }}
         onCancel={() => setEditingRoundId(null)}
       />
@@ -197,6 +383,16 @@ function RoundDetailsPage() {
             Mitglieder
           </h2>
           {membersContent}
+          {wasPlayerRemoved && (
+            <p className="round-member-remove-success" role="status">
+              Spieler wurde entfernt.
+            </p>
+          )}
+          {wasGameMasterTransferred && (
+            <p className="round-member-transfer-success" role="status">
+              Spielleitung wurde übertragen.
+            </p>
+          )}
           {membershipRole === 'game_master' && user && roundId && (
             <AddRoundMemberSearch
               roundId={roundId}

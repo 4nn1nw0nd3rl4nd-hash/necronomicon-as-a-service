@@ -1006,12 +1006,17 @@ button {
 }
 
 .round-member {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.round-member-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-md) 0;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .round-member:first-child {
@@ -1043,12 +1048,111 @@ button {
   flex-shrink: 0;
 }
 
+.round-member-controls,
+.round-member-remove-actions,
+.round-member-transfer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .round-member-role-game_master {
   color: var(--color-accent);
 }
 
 .round-member-role-player {
   color: var(--color-text-muted);
+}
+
+.round-member-remove-trigger,
+.round-member-remove-confirm,
+.round-member-remove-cancel,
+.round-member-transfer-trigger,
+.round-member-transfer-confirm,
+.round-member-transfer-cancel {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.round-member-remove-trigger,
+.round-member-remove-confirm {
+  color: #d9b8b0;
+}
+
+.round-member-remove-trigger:hover:not(:disabled),
+.round-member-remove-confirm:hover:not(:disabled) {
+  border-color: #9f7168;
+}
+
+.round-member-remove-cancel:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.round-member-transfer-trigger,
+.round-member-transfer-confirm {
+  color: var(--color-accent);
+}
+
+.round-member-transfer-trigger:hover:not(:disabled),
+.round-member-transfer-confirm:hover:not(:disabled),
+.round-member-transfer-cancel:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.round-member-remove-trigger:focus-visible,
+.round-member-remove-confirm:focus-visible,
+.round-member-remove-cancel:focus-visible,
+.round-member-transfer-trigger:focus-visible,
+.round-member-transfer-confirm:focus-visible,
+.round-member-transfer-cancel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-member-remove-trigger:disabled,
+.round-member-remove-confirm:disabled,
+.round-member-remove-cancel:disabled,
+.round-member-transfer-trigger:disabled,
+.round-member-transfer-confirm:disabled,
+.round-member-transfer-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.round-member-remove-confirm[data-submitting='true'],
+.round-member-transfer-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
+.round-member-remove-confirmation,
+.round-member-transfer-confirmation {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-left: 2px solid #9f7168;
+  background-color: var(--color-surface-alt);
+}
+
+.round-member-transfer-confirmation {
+  border-left-color: var(--color-accent);
+}
+
+.round-member-remove-confirmation p,
+.round-member-transfer-confirmation p,
+.round-member-remove-success,
+.round-member-transfer-success {
+  margin: 0;
+}
+
+.round-member-remove-success,
+.round-member-transfer-success {
+  margin-top: var(--space-md);
+  color: var(--color-accent);
+  font-size: 0.9rem;
 }
 
 .add-round-member-search {
@@ -1178,10 +1282,15 @@ button {
     flex-direction: column;
   }
 
-  .round-member {
+  .round-member-summary {
     align-items: flex-start;
     flex-direction: column;
     gap: var(--space-sm);
+  }
+
+  .round-member-controls {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .add-round-member-search-form {
