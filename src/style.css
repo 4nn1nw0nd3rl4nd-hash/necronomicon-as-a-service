@@ -585,6 +585,189 @@ button {
   outline-offset: var(--space-xs);
 }
 
+.rounds-page {
+  width: 100%;
+}
+
+.rounds-title {
+  margin: 0 0 var(--space-xl);
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.create-round-card {
+  width: 100%;
+  max-width: 42rem;
+  margin-bottom: var(--space-xl);
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.create-round-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.create-round-form {
+  display: grid;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+}
+
+.create-round-form textarea {
+  width: 100%;
+  min-height: 7rem;
+  padding: 0.75rem var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.create-round-form textarea:focus {
+  border-color: var(--color-accent);
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.create-round-form textarea:disabled {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.create-round-form .auth-submit:disabled {
+  cursor: not-allowed;
+}
+
+.create-round-form .auth-submit[data-submitting='true'] {
+  cursor: progress;
+}
+
+.rounds-state {
+  margin: 0;
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.rounds-state p {
+  margin: 0;
+}
+
+.rounds-retry {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.rounds-retry:hover {
+  border-color: var(--color-accent);
+}
+
+.rounds-retry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.rounds-list {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(18rem, 100%), 1fr)
+  );
+  gap: var(--space-lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-card {
+  height: 100%;
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.round-card-header {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.round-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.round-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.round-badge {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.round-role,
+.round-status-active {
+  color: var(--color-accent);
+}
+
+.round-status-paused {
+  color: #c2b68f;
+}
+
+.round-status-archived {
+  color: var(--color-text-muted);
+}
+
+.round-details {
+  display: grid;
+  gap: var(--space-md);
+  margin: var(--space-lg) 0 0;
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.round-details div {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.round-details dt {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.round-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 48rem) {
   .landing-page {
     padding-inline: var(--space-md);
@@ -620,7 +803,10 @@ button {
   }
 
   .profile-card,
-  .profile-status {
+  .profile-status,
+  .create-round-card,
+  .round-card,
+  .rounds-state {
     padding: var(--space-lg);
   }
 
