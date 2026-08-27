@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../auth/useAuth'
 import EmailChangeForm from '../components/EmailChangeForm'
+import PasswordChangeForm from '../components/PasswordChangeForm'
 import { useProfile } from '../hooks/useProfile'
 import type { Profile } from '../types/profile'
 
@@ -165,7 +166,10 @@ function ProfilePage() {
           >
             Kontosicherheit
           </h2>
-          <EmailChangeForm />
+          <div className="profile-security-forms">
+            <EmailChangeForm />
+            <PasswordChangeForm />
+          </div>
         </section>
       </div>
     )

@@ -5,17 +5,8 @@ import {
   authErrorMessages,
   getRegistrationErrorMessage,
 } from '../lib/authErrors'
+import { isPasswordValid } from '../lib/passwordValidation'
 import { supabase } from '../lib/supabase'
-
-function isPasswordValid(password: string) {
-  return (
-    password.length >= 8 &&
-    /[a-z]/.test(password) &&
-    /[A-Z]/.test(password) &&
-    /[0-9]/.test(password) &&
-    /[^A-Za-z0-9\s]/.test(password)
-  )
-}
 
 function RegisterPage() {
   const [username, setUsername] = useState('')

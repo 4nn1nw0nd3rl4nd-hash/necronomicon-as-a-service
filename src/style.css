@@ -376,6 +376,11 @@ button {
   font-weight: 600;
 }
 
+.profile-security-forms {
+  display: grid;
+  gap: var(--space-md);
+}
+
 .profile-card,
 .profile-status {
   padding: var(--space-xl);
@@ -517,6 +522,18 @@ button {
   display: block;
   margin-top: var(--space-xs);
   color: var(--color-text-muted);
+}
+
+.password-change-form,
+.password-change-fields {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.password-change-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .profile-role {

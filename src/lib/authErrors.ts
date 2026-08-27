@@ -16,10 +16,67 @@ export const authErrorMessages = {
   usernameAlreadyTaken: 'Dieser Benutzername ist bereits vergeben.',
   invalidPassword:
     'Das Passwort muss mindestens 8 Zeichen sowie Groß- und Kleinbuchstaben, eine Zahl und ein Sonderzeichen enthalten.',
+  currentPasswordRequired: 'Bitte gib dein aktuelles Passwort ein.',
+  currentPasswordMismatch: 'Das aktuelle Passwort ist falsch.',
+  samePassword:
+    'Das neue Passwort muss sich vom aktuellen Passwort unterscheiden.',
+  passwordChangeReauthenticationNeeded:
+    'Bitte bestätige deine Identität erneut, um das Passwort zu ändern.',
+  passwordChangeReauthenticationInvalid:
+    'Die Bestätigung ist ungültig oder abgelaufen. Bitte versuche es erneut.',
+  passwordChangeSessionMissing:
+    'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
+  unknownPasswordChange:
+    'Das Passwort konnte nicht geändert werden. Bitte versuche es erneut.',
   unknownLogin: 'Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.',
   unknownRegistration:
     'Die Registrierung ist fehlgeschlagen. Bitte versuche es erneut.',
 } as const
+
+export function getPasswordChangeErrorMessage(error?: AuthError) {
+  if (!error) {
+    return authErrorMessages.unknownPasswordChange
+  }
+
+  if (error.code === 'current_password_required') {
+    return authErrorMessages.currentPasswordRequired
+  }
+
+  if (error.code === 'current_password_mismatch') {
+    return authErrorMessages.currentPasswordMismatch
+  }
+
+  if (
+    error.code === 'weak_password' ||
+    error.code === 'password_too_short'
+  ) {
+    return authErrorMessages.invalidPassword
+  }
+
+  if (error.code === 'same_password') {
+    return authErrorMessages.samePassword
+  }
+
+  if (error.code === 'reauthentication_needed') {
+    return authErrorMessages.passwordChangeReauthenticationNeeded
+  }
+
+  if (error.code === 'reauthentication_not_valid') {
+    return authErrorMessages.passwordChangeReauthenticationInvalid
+  }
+
+  if (
+    error.code === 'session_not_found' ||
+    error.code === 'session_expired' ||
+    error.code === 'refresh_token_not_found' ||
+    error.code === 'refresh_token_already_used' ||
+    error.name === 'AuthSessionMissingError'
+  ) {
+    return authErrorMessages.passwordChangeSessionMissing
+  }
+
+  return authErrorMessages.unknownPasswordChange
+}
 
 export function getEmailChangeErrorMessage(error?: AuthError) {
   if (!error) {
