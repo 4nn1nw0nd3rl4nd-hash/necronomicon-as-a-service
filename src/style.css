@@ -219,7 +219,7 @@ button {
 }
 
 .auth-submit:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -452,6 +452,14 @@ button {
   outline-offset: 1px;
 }
 
+.profile-display-controls input:disabled,
+.auth-field input:disabled {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .profile-save {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-accent);
@@ -496,6 +504,7 @@ button {
 .email-change-current {
   display: grid;
   gap: var(--space-xs);
+  margin-top: var(--space-lg);
   padding-bottom: var(--space-lg);
   border-bottom: 1px solid var(--color-border);
 }
@@ -530,10 +539,20 @@ button {
   gap: var(--space-lg);
 }
 
-.password-change-title {
+.profile-form-title {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+}
+
+.email-change-form button:disabled,
+.password-change-form button:disabled {
+  cursor: not-allowed;
+}
+
+.email-change-form button[data-submitting='true'],
+.password-change-form button[data-submitting='true'] {
+  cursor: progress;
 }
 
 .profile-role {

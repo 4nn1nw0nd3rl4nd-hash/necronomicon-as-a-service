@@ -36,12 +36,16 @@ function EmailChangeForm() {
 
   return (
     <div className="profile-card">
+      <h3 className="profile-form-title" id="email-change-title">
+        E-Mail-Adresse ändern
+      </h3>
       <div className="email-change-current">
         <span>Aktuelle E-Mail-Adresse</span>
         <strong>{user?.email ?? 'Nicht verfügbar'}</strong>
       </div>
       <form
         className="email-change-form"
+        aria-labelledby="email-change-title"
         onSubmit={handleSubmit}
         noValidate
       >
@@ -60,8 +64,11 @@ function EmailChangeForm() {
             className="profile-save"
             type="submit"
             disabled={isSubmitDisabled}
+            data-submitting={isSubmitting}
           >
-            {isSubmitting ? 'Anfordern...' : 'Änderung anfordern'}
+            {isSubmitting
+              ? 'Änderung anfordern...'
+              : 'Änderung anfordern'}
           </button>
         </div>
         {error && (

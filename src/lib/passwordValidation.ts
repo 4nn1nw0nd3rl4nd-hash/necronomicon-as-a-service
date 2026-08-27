@@ -1,3 +1,6 @@
+export const passwordRequirementsHint =
+  'Mindestens 8 Zeichen mit Groß- und Kleinbuchstaben, Zahl und Sonderzeichen.'
+
 export function isPasswordValid(password: string): boolean {
   return (
     password.length >= 8 &&

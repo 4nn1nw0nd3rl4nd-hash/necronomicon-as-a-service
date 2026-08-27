@@ -33,6 +33,7 @@ function ProfilePage() {
   const [displayNameError, setDisplayNameError] = useState<string | null>(
     null,
   )
+  const [isSaveErrorDismissed, setIsSaveErrorDismissed] = useState(false)
 
   const displayName =
     profile && displayNameDraft?.profileUpdatedAt === profile.updated_at
@@ -54,6 +55,7 @@ function ProfilePage() {
     })
     setSaveSucceeded(false)
     setDisplayNameError(null)
+    setIsSaveErrorDismissed(true)
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -64,6 +66,7 @@ function ProfilePage() {
     }
 
     setSaveSucceeded(false)
+    setIsSaveErrorDismissed(false)
 
     if (!normalizedDisplayName) {
       setDisplayNameError('Der Anzeigename darf nicht leer sein.')
@@ -82,7 +85,11 @@ function ProfilePage() {
   let content
 
   if (isLoading) {
-    content = <p className="profile-status">Profil wird geladen...</p>
+    content = (
+      <p className="profile-status" role="status">
+        Profil wird geladen...
+      </p>
+    )
   } else if (error) {
     content = (
       <div className="profile-status" role="alert">
@@ -124,6 +131,7 @@ function ProfilePage() {
                       onChange={(event) =>
                         handleDisplayNameChange(event.target.value)
                       }
+                      disabled={isSaving}
                     />
                     <button
                       className="profile-save"
@@ -133,7 +141,8 @@ function ProfilePage() {
                       {isSaving ? 'Speichern...' : 'Speichern'}
                     </button>
                   </div>
-                  {(displayNameError || saveError) && (
+                  {(displayNameError ||
+                    (!isSaveErrorDismissed && saveError)) && (
                     <p className="profile-form-error" role="alert">
                       {displayNameError || saveError}
                     </p>

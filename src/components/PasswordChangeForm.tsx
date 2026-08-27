@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { usePasswordChange } from '../hooks/usePasswordChange'
+import { passwordRequirementsHint } from '../lib/passwordValidation'
 
 type PasswordFields = {
   currentPassword: string
@@ -61,10 +62,13 @@ function PasswordChangeForm() {
     <div className="profile-card">
       <form
         className="password-change-form"
+        aria-labelledby="password-change-title"
         onSubmit={handleSubmit}
         noValidate
       >
-        <h3 className="password-change-title">Passwort ändern</h3>
+        <h3 className="profile-form-title" id="password-change-title">
+          Passwort ändern
+        </h3>
         <div className="password-change-fields">
           <label className="auth-field" htmlFor="current-password">
             <span>Aktuelles Passwort</span>
@@ -85,8 +89,15 @@ function PasswordChangeForm() {
               value={fields.newPassword}
               onChange={handleChange('newPassword')}
               autoComplete="new-password"
+              aria-describedby="password-change-requirements"
               disabled={isSubmitting}
             />
+            <small
+              className="auth-hint"
+              id="password-change-requirements"
+            >
+              {passwordRequirementsHint}
+            </small>
           </label>
           <label className="auth-field" htmlFor="confirm-password">
             <span>Neues Passwort bestätigen</span>
@@ -104,6 +115,7 @@ function PasswordChangeForm() {
           className="auth-submit"
           type="submit"
           disabled={isSubmitDisabled}
+          data-submitting={isSubmitting}
         >
           {isSubmitting ? 'Passwort ändern...' : 'Passwort ändern'}
         </button>

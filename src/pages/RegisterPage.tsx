@@ -5,7 +5,10 @@ import {
   authErrorMessages,
   getRegistrationErrorMessage,
 } from '../lib/authErrors'
-import { isPasswordValid } from '../lib/passwordValidation'
+import {
+  isPasswordValid,
+  passwordRequirementsHint,
+} from '../lib/passwordValidation'
 import { supabase } from '../lib/supabase'
 
 function RegisterPage() {
@@ -136,8 +139,7 @@ function RegisterPage() {
               required
             />
             <small className="auth-hint" id="password-requirements">
-              Mindestens 8 Zeichen mit Groß- und Kleinbuchstaben, Zahl und
-              Sonderzeichen.
+              {passwordRequirementsHint}
             </small>
           </label>
           <label className="auth-field">
