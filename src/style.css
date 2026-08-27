@@ -833,11 +833,98 @@ button {
   gap: var(--space-md);
 }
 
-.round-detail-header h1 {
+.round-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.round-detail-header h1,
+.edit-round-title {
   margin: 0;
   font-size: 2rem;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.round-edit-button,
+.edit-round-cancel {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.round-edit-button:hover,
+.edit-round-cancel:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.round-edit-button:focus-visible,
+.edit-round-cancel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.edit-round-form {
+  display: grid;
+  gap: var(--space-lg);
+  margin-top: var(--space-xl);
+}
+
+.edit-round-form textarea,
+.edit-round-form select {
+  width: 100%;
+  padding: 0.75rem var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.edit-round-form textarea {
+  min-height: 10rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.edit-round-form textarea:focus,
+.edit-round-form select:focus {
+  border-color: var(--color-accent);
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.edit-round-form textarea:disabled,
+.edit-round-form select:disabled {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.edit-round-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.edit-round-actions .auth-submit {
+  width: auto;
+}
+
+.edit-round-actions .auth-submit:disabled,
+.edit-round-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.edit-round-actions .auth-submit[data-submitting='true'] {
+  cursor: progress;
 }
 
 .round-detail-meta {
@@ -940,6 +1027,18 @@ button {
   .profile-display-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .round-detail-title-row,
+  .edit-round-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .round-edit-button,
+  .edit-round-actions .auth-submit,
+  .edit-round-cancel {
+    width: 100%;
   }
 
   .profile-save {

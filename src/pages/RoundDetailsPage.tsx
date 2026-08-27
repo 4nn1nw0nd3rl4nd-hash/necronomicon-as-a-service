@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import EditRoundForm from '../components/EditRoundForm'
 import { useRoundDetails } from '../hooks/useRoundDetails'
 import type {
   RoundMembershipRole,
@@ -25,6 +27,9 @@ function RoundDetailsPage() {
   const { user } = useAuth()
   const { round, membershipRole, isLoading, error, reload } =
     useRoundDetails(roundId, user?.id)
+  const [editingRoundId, setEditingRoundId] = useState<string | null>(
+    null,
+  )
 
   let content
 
@@ -48,10 +53,33 @@ function RoundDetailsPage() {
       </div>
     )
   } else if (round) {
-    content = (
+    const isEditing =
+      editingRoundId === round.id && membershipRole === 'game_master'
+
+    content = isEditing ? (
+      <EditRoundForm
+        round={round}
+        onUpdated={() => {
+          setEditingRoundId(null)
+          reload()
+        }}
+        onCancel={() => setEditingRoundId(null)}
+      />
+    ) : (
       <article className="round-detail-card">
         <header className="round-detail-header">
-          <h1>{round.name}</h1>
+          <div className="round-detail-title-row">
+            <h1>{round.name}</h1>
+            {membershipRole === 'game_master' && (
+              <button
+                className="round-edit-button"
+                type="button"
+                onClick={() => setEditingRoundId(round.id)}
+              >
+                Bearbeiten
+              </button>
+            )}
+          </div>
           <div className="round-badges">
             {membershipRole && (
               <span className="round-badge round-role">

@@ -35,3 +35,11 @@ export type RoundDetailsMembership = {
   role: RoundMembershipRole
   round: RoundDetails
 }
+
+export type UpdateRoundInput = {
+  name: string
+  system: string
+  description: string
+  appointment: string
+  status: RoundStatus
+}
