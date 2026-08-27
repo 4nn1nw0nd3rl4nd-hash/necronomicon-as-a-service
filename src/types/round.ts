@@ -43,3 +43,18 @@ export type UpdateRoundInput = {
   appointment: string
   status: RoundStatus
 }
+
+export type RoundMemberProfile = {
+  id: string
+  username: string
+  display_name: string
+}
+
+export type RoundMember = {
+  id: string
+  round_id: string
+  user_id: string
+  role: RoundMembershipRole
+  created_at: string
+  profile: RoundMemberProfile
+}

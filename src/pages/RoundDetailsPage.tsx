@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import AddRoundMemberSearch from '../components/AddRoundMemberSearch'
 import EditRoundForm from '../components/EditRoundForm'
 import { useRoundDetails } from '../hooks/useRoundDetails'
+import { useRoundMembers } from '../hooks/useRoundMembers'
 import type {
   RoundMembershipRole,
   RoundStatus,
@@ -27,11 +29,61 @@ function RoundDetailsPage() {
   const { user } = useAuth()
   const { round, membershipRole, isLoading, error, reload } =
     useRoundDetails(roundId, user?.id)
+  const {
+    members,
+    isLoading: areMembersLoading,
+    error: membersError,
+    reload: reloadMembers,
+  } = useRoundMembers(roundId, user?.id)
   const [editingRoundId, setEditingRoundId] = useState<string | null>(
     null,
   )
 
   let content
+  let membersContent
+
+  if (areMembersLoading) {
+    membersContent = (
+      <p className="round-members-state" role="status">
+        Mitglieder werden geladen...
+      </p>
+    )
+  } else if (membersError) {
+    membersContent = (
+      <div className="round-members-state" role="alert">
+        <p>{membersError}</p>
+        <button
+          className="rounds-retry"
+          type="button"
+          onClick={reloadMembers}
+        >
+          Erneut versuchen
+        </button>
+      </div>
+    )
+  } else if (members.length === 0) {
+    membersContent = (
+      <p className="round-members-state">Keine Mitglieder gefunden.</p>
+    )
+  } else {
+    membersContent = (
+      <ul className="round-members-list">
+        {members.map((member) => (
+          <li className="round-member" key={member.id}>
+            <div className="round-member-identity">
+              <strong>{member.profile.display_name}</strong>
+              <span>@{member.profile.username}</span>
+            </div>
+            <span
+              className={`round-badge round-member-role round-member-role-${member.role}`}
+            >
+              {getRoleLabel(member.role)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
 
   if (isLoading) {
     content = (
@@ -136,6 +188,25 @@ function RoundDetailsPage() {
         Zurück zu Meine Runden
       </Link>
       {content}
+      {round && (
+        <section
+          className="round-members-card"
+          aria-labelledby="round-members-title"
+        >
+          <h2 className="round-members-title" id="round-members-title">
+            Mitglieder
+          </h2>
+          {membersContent}
+          {membershipRole === 'game_master' && user && roundId && (
+            <AddRoundMemberSearch
+              roundId={roundId}
+              currentUserId={user.id}
+              members={members}
+              onPlayerAdded={reloadMembers}
+            />
+          )}
+        </section>
+      )}
     </section>
   )
 }

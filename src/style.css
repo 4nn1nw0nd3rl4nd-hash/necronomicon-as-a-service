@@ -975,6 +975,148 @@ button {
   white-space: pre-wrap;
 }
 
+.round-members-card {
+  margin-top: var(--space-xl);
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.round-members-title {
+  margin: 0 0 var(--space-md);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.round-members-state {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.round-members-state p {
+  margin: 0;
+}
+
+.round-members-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.round-member:first-child {
+  padding-top: 0;
+}
+
+.round-member:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.round-member-identity {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.round-member-identity strong,
+.round-member-identity span {
+  overflow-wrap: anywhere;
+}
+
+.round-member-identity span {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.round-member-role {
+  flex-shrink: 0;
+}
+
+.round-member-role-game_master {
+  color: var(--color-accent);
+}
+
+.round-member-role-player {
+  color: var(--color-text-muted);
+}
+
+.add-round-member-search {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--color-border);
+}
+
+.add-round-member-search-title {
+  margin: 0 0 var(--space-md);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.add-round-member-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-sm);
+}
+
+.add-round-member-search-form .auth-submit {
+  width: auto;
+  min-width: 7rem;
+}
+
+.add-round-member-search-form .auth-submit:disabled {
+  cursor: not-allowed;
+}
+
+.add-round-member-search-form .auth-submit[data-submitting='true'] {
+  cursor: progress;
+}
+
+.add-round-member-search > .profile-form-error,
+.add-round-member-search > .profile-form-success {
+  margin-top: var(--space-md);
+}
+
+.round-member-search-result {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.round-member-search-notice {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.round-member-search-action {
+  justify-self: start;
+  width: auto;
+}
+
+.round-member-search-action:disabled {
+  cursor: not-allowed;
+}
+
+.round-member-search-action[data-submitting='true'] {
+  cursor: progress;
+}
+
 @media (max-width: 48rem) {
   .landing-page {
     padding-inline: var(--space-md);
@@ -1015,7 +1157,8 @@ button {
   .round-card,
   .rounds-state,
   .round-detail-state,
-  .round-detail-card {
+  .round-detail-card,
+  .round-members-card {
     padding: var(--space-lg);
   }
 
@@ -1033,6 +1176,20 @@ button {
   .edit-round-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .round-member {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .add-round-member-search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .add-round-member-search-form .auth-submit {
+    width: 100%;
   }
 
   .round-edit-button,
