@@ -1,10 +1,16 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
+import { useProfile } from '../hooks/useProfile'
 import { supabase } from '../lib/supabase'
 
 function AppLayout() {
+  const { user } = useAuth()
+  const { profile } = useProfile(user?.id)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
+  const isAdmin =
+    profile?.role === 'admin' || profile?.is_superadmin === true
 
   const handleLogout = async () => {
     setIsSigningOut(true)
@@ -59,14 +65,6 @@ function AppLayout() {
               >
                 Profil
               </NavLink>
-              <NavLink
-                to="/app/admin"
-                className={({ isActive }) =>
-                  isActive ? 'nav-link active' : 'nav-link'
-                }
-              >
-                Admin
-              </NavLink>
             </nav>
             <button
               className="app-logout"
@@ -87,6 +85,13 @@ function AppLayout() {
       <main className="app-main">
         <Outlet />
       </main>
+      {isAdmin && (
+        <footer className="app-footer">
+          <Link className="app-admin-link" to="/app/admin">
+            Adminbereich
+          </Link>
+        </footer>
+      )}
     </div>
   )
 }

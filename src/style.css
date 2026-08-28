@@ -254,6 +254,8 @@ button {
 }
 
 .app-shell {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background-color: var(--color-background);
 }
@@ -350,8 +352,308 @@ button {
 .app-main {
   width: 100%;
   max-width: var(--content-width);
+  flex: 1;
   margin: 0 auto;
   padding: var(--space-xl) var(--space-lg);
+}
+
+.app-footer {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--color-border);
+  text-align: right;
+}
+
+.app-admin-link {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-underline-offset: 0.2em;
+}
+
+.app-admin-link:hover {
+  color: var(--color-text);
+}
+
+.app-admin-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.admin-access-status {
+  max-width: 38rem;
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.admin-access-status p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.admin-access-status button {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.admin-access-status button:hover {
+  border-color: var(--color-accent);
+}
+
+.admin-access-status button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.admin-page {
+  width: 100%;
+  max-width: 56rem;
+}
+
+.admin-page-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.admin-page-header p {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.admin-section-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+}
+
+.admin-section-button {
+  padding: 0.75rem var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.admin-section-button:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.admin-section-button.active {
+  border-color: var(--color-accent);
+  background-color: var(--color-surface-alt);
+  color: var(--color-accent);
+}
+
+.admin-section-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.admin-section-content {
+  margin-top: var(--space-lg);
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.admin-section-content h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.admin-section-content p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.admin-users {
+  margin-top: var(--space-md);
+}
+
+.admin-action-message {
+  margin-bottom: var(--space-md) !important;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-accent);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text) !important;
+}
+
+.admin-action-error {
+  border-left-color: #9b766e;
+  color: #d9b8b0 !important;
+}
+
+.admin-users-status {
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.admin-users-status button {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.admin-users-status button:hover {
+  border-color: var(--color-accent);
+}
+
+.admin-users-status button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.admin-user-list {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-width: 0;
+  padding: 0.75rem var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+}
+
+.admin-user-superadmin {
+  border-color: color-mix(
+    in srgb,
+    var(--color-accent) 65%,
+    var(--color-border)
+  );
+}
+
+.admin-user-identity {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
+}
+
+.admin-user-display-name,
+.admin-user-username {
+  overflow-wrap: anywhere;
+}
+
+.admin-user-display-name {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.admin-user-username {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.admin-role-badge {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.admin-user-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.admin-promote-button {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.admin-promote-button:hover:not(:disabled) {
+  background-color: var(--color-surface-alt);
+}
+
+.admin-promote-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.admin-promote-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.admin-promote-button.is-submitting {
+  cursor: progress;
+}
+
+.admin-role-admin {
+  border-color: color-mix(
+    in srgb,
+    var(--color-accent) 45%,
+    var(--color-border)
+  );
+  color: var(--color-text);
+}
+
+.admin-role-superadmin {
+  border-color: var(--color-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent) 14%,
+    transparent
+  );
+  color: var(--color-accent);
+}
+
+@media (max-width: 32rem) {
+  .admin-section-button {
+    width: 100%;
+  }
+
+  .admin-user {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-user-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .profile-page {

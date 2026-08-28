@@ -10,6 +10,7 @@ import RegisterPage from './pages/RegisterPage'
 import RoundDetailsPage from './pages/RoundDetailsPage'
 import RoundsPage from './pages/RoundsPage'
 import GuestOnly from './routes/GuestOnly'
+import RequireAdmin from './routes/RequireAdmin'
 import RequireAuth from './routes/RequireAuth'
 
 function App() {
@@ -26,7 +27,9 @@ function App() {
           <Route path="profile" element={<ProfilePage />} />
           <Route path="rounds" element={<RoundsPage />} />
           <Route path="rounds/:roundId" element={<RoundDetailsPage />} />
-          <Route path="admin" element={<AdminPage />} />
+          <Route element={<RequireAdmin />}>
+            <Route path="admin" element={<AdminPage />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
