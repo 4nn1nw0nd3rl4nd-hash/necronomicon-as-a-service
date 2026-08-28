@@ -30,6 +30,10 @@ export type RoundDetails = RoundSummary & {
   description: string | null
 }
 
+export type AdminRound = RoundSummary & {
+  gameMaster: RoundMemberProfile | null
+}
+
 export type RoundDetailsMembership = {
   round_id: string
   role: RoundMembershipRole

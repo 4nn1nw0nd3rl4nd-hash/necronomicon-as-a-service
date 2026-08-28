@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import AdminPage from './pages/AdminPage'
+import AdminRoundDetailsPage from './pages/AdminRoundDetailsPage'
 import DashboardPage from './pages/DashboardPage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -29,6 +30,10 @@ function App() {
           <Route path="rounds/:roundId" element={<RoundDetailsPage />} />
           <Route element={<RequireAdmin />}>
             <Route path="admin" element={<AdminPage />} />
+            <Route
+              path="admin/rounds/:roundId"
+              element={<AdminRoundDetailsPage />}
+            />
           </Route>
         </Route>
       </Route>

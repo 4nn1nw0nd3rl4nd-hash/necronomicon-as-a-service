@@ -1,20 +1,40 @@
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useAdminRoleActions } from '../hooks/useAdminRoleActions'
+import { useAdminRounds } from '../hooks/useAdminRounds'
 import { useAdminUsers } from '../hooks/useAdminUsers'
 import { useDeleteUser } from '../hooks/useDeleteUser'
+import type { RoundStatus } from '../types/round'
 
 type AdminSection = 'users' | 'rounds'
 
+function getRoundStatusLabel(status: RoundStatus) {
+  const labels: Record<RoundStatus, string> = {
+    active: 'Aktiv',
+    paused: 'Pausiert',
+    archived: 'Archiviert',
+  }
+
+  return labels[status]
+}
+
 function AdminPage() {
   const { user: currentUser } = useAuth()
-  const [activeSection, setActiveSection] =
-    useState<AdminSection>('users')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeSection: AdminSection =
+    searchParams.get('section') === 'rounds' ? 'rounds' : 'users'
   const [pendingDemotionUserId, setPendingDemotionUserId] =
     useState<string | null>(null)
   const [pendingDeletionUserId, setPendingDeletionUserId] =
     useState<string | null>(null)
   const { users, isLoading, error, reload } = useAdminUsers()
+  const {
+    rounds,
+    isLoading: areRoundsLoading,
+    error: roundsError,
+    reload: reloadRounds,
+  } = useAdminRounds()
   const {
     isSubmitting: isRoleSubmitting,
     activeUserId,
@@ -96,7 +116,7 @@ function AdminPage() {
               : 'admin-section-button'
           }
           aria-pressed={activeSection === 'users'}
-          onClick={() => setActiveSection('users')}
+          onClick={() => setSearchParams({ section: 'users' })}
         >
           Nutzerverwaltung
         </button>
@@ -108,7 +128,7 @@ function AdminPage() {
               : 'admin-section-button'
           }
           aria-pressed={activeSection === 'rounds'}
-          onClick={() => setActiveSection('rounds')}
+          onClick={() => setSearchParams({ section: 'rounds' })}
         >
           Rundenverwaltung
         </button>
@@ -336,7 +356,69 @@ function AdminPage() {
             )}
           </div>
         ) : (
-          <p>Die Rundenverwaltung wird hier angezeigt.</p>
+          <div className="admin-rounds">
+            {areRoundsLoading ? (
+              <p className="admin-rounds-status" role="status">
+                Runden werden geladen...
+              </p>
+            ) : roundsError ? (
+              <div className="admin-rounds-status">
+                <p role="alert">{roundsError}</p>
+                <button type="button" onClick={reloadRounds}>
+                  Erneut versuchen
+                </button>
+              </div>
+            ) : rounds.length === 0 ? (
+              <p className="admin-rounds-status">
+                Keine Runden gefunden.
+              </p>
+            ) : (
+              <ul className="admin-round-list" role="list">
+                {rounds.map((round) => (
+                  <li key={round.id}>
+                    <Link
+                      className="admin-round-card-link"
+                      to={`/app/admin/rounds/${round.id}`}
+                      aria-label={`Admin-Rundendetails zu ${round.name}`}
+                    >
+                      <article className="admin-round-card">
+                        <header className="admin-round-card-header">
+                          <h3>{round.name}</h3>
+                          <span
+                            className={`round-badge round-status-${round.status}`}
+                          >
+                            {getRoundStatusLabel(round.status)}
+                          </span>
+                        </header>
+                        <dl className="admin-round-details">
+                          {round.system && (
+                            <div>
+                              <dt>System</dt>
+                              <dd>{round.system}</dd>
+                            </div>
+                          )}
+                          {round.appointment && (
+                            <div>
+                              <dt>Termin</dt>
+                              <dd>{round.appointment}</dd>
+                            </div>
+                          )}
+                          <div>
+                            <dt>Spielleitung</dt>
+                            <dd>
+                              {round.gameMaster
+                                ? `${round.gameMaster.display_name} (@${round.gameMaster.username})`
+                                : 'Keine Spielleitung zugeordnet'}
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </section>
     </section>
