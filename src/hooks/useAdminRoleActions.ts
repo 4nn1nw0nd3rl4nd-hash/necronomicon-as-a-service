@@ -21,6 +21,9 @@ const sessionError =
 const promoteError =
   'Der Nutzer konnte nicht zum Admin gemacht werden. Bitte versuche es erneut.'
 const promoteSuccess = 'Nutzer wurde zum Admin gemacht.'
+const demoteError =
+  'Der Admin konnte nicht zum Nutzer zurückgestuft werden. Bitte versuche es erneut.'
+const demoteSuccess = 'Admin wurde zum Nutzer zurückgestuft.'
 
 export function useAdminRoleActions() {
   const { session, user } = useAuth()
@@ -110,12 +113,78 @@ export function useAdminRoleActions() {
     [session, user],
   )
 
+  const demoteUser = useCallback(
+    async (targetUserId: string): Promise<boolean> => {
+      if (isRequestInFlightRef.current) {
+        return false
+      }
+
+      if (!session || !user) {
+        setState({ ...initialState, error: sessionError })
+        return false
+      }
+
+      if (!targetUserId.trim()) {
+        setState({ ...initialState, error: demoteError })
+        return false
+      }
+
+      isRequestInFlightRef.current = true
+      setState({
+        ...initialState,
+        isSubmitting: true,
+        activeUserId: targetUserId,
+      })
+
+      try {
+        const { error } = await supabase.rpc(
+          'demote_admin_to_user',
+          {
+            p_user_id: targetUserId,
+          },
+        )
+
+        if (error) {
+          if (isMountedRef.current) {
+            setState({ ...initialState, error: demoteError })
+          }
+          return false
+        }
+
+        if (isMountedRef.current) {
+          setState({
+            ...initialState,
+            successMessage: demoteSuccess,
+          })
+        }
+        return true
+      } catch {
+        if (isMountedRef.current) {
+          setState({ ...initialState, error: demoteError })
+        }
+        return false
+      } finally {
+        isRequestInFlightRef.current = false
+
+        if (isMountedRef.current) {
+          setState((currentState) => ({
+            ...currentState,
+            isSubmitting: false,
+            activeUserId: null,
+          }))
+        }
+      }
+    },
+    [session, user],
+  )
+
   return {
     isSubmitting: state.isSubmitting,
     activeUserId: state.activeUserId,
     error: state.error,
     successMessage: state.successMessage,
     promoteUser,
+    demoteUser,
     resetState,
   }
 }

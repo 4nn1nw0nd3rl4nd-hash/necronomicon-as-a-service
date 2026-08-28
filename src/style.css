@@ -536,6 +536,7 @@ button {
 
 .admin-user {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
@@ -592,7 +593,10 @@ button {
   gap: var(--space-sm);
 }
 
-.admin-promote-button {
+.admin-promote-button,
+.admin-demote-button,
+.admin-demote-confirm,
+.admin-demote-cancel {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
@@ -603,22 +607,52 @@ button {
   white-space: nowrap;
 }
 
-.admin-promote-button:hover:not(:disabled) {
+.admin-promote-button:hover:not(:disabled),
+.admin-demote-button:hover:not(:disabled),
+.admin-demote-confirm:hover:not(:disabled),
+.admin-demote-cancel:hover:not(:disabled) {
   background-color: var(--color-surface-alt);
 }
 
-.admin-promote-button:focus-visible {
+.admin-promote-button:focus-visible,
+.admin-demote-button:focus-visible,
+.admin-demote-confirm:focus-visible,
+.admin-demote-cancel:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
 }
 
-.admin-promote-button:disabled {
+.admin-promote-button:disabled,
+.admin-demote-button:disabled,
+.admin-demote-confirm:disabled,
+.admin-demote-cancel:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.admin-promote-button.is-submitting {
+.admin-promote-button.is-submitting,
+.admin-demote-confirm.is-submitting {
   cursor: progress;
+}
+
+.admin-demote-button,
+.admin-demote-cancel {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.admin-demote-confirmation {
+  flex: 1 0 100%;
+  padding: var(--space-md);
+  border-left: 3px solid var(--color-border);
+  background-color: var(--color-surface-alt);
+}
+
+.admin-demote-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
 }
 
 .admin-role-admin {

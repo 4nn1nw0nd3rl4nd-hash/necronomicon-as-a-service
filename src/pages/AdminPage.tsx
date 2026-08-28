@@ -1,12 +1,16 @@
 import { useState } from 'react'
+import { useAuth } from '../auth/useAuth'
 import { useAdminRoleActions } from '../hooks/useAdminRoleActions'
 import { useAdminUsers } from '../hooks/useAdminUsers'
 
 type AdminSection = 'users' | 'rounds'
 
 function AdminPage() {
+  const { user: currentUser } = useAuth()
   const [activeSection, setActiveSection] =
     useState<AdminSection>('users')
+  const [pendingDemotionUserId, setPendingDemotionUserId] =
+    useState<string | null>(null)
   const { users, isLoading, error, reload } = useAdminUsers()
   const {
     isSubmitting,
@@ -14,12 +18,29 @@ function AdminPage() {
     error: roleActionError,
     successMessage,
     promoteUser,
+    demoteUser,
+    resetState,
   } = useAdminRoleActions()
 
   const handlePromoteUser = async (targetUserId: string) => {
+    setPendingDemotionUserId(null)
     const wasPromoted = await promoteUser(targetUserId)
 
     if (wasPromoted) {
+      reload()
+    }
+  }
+
+  const openDemotionConfirmation = (targetUserId: string) => {
+    resetState()
+    setPendingDemotionUserId(targetUserId)
+  }
+
+  const handleDemoteUser = async (targetUserId: string) => {
+    const wasDemoted = await demoteUser(targetUserId)
+
+    if (wasDemoted) {
+      setPendingDemotionUserId(null)
       reload()
     }
   }
@@ -110,6 +131,12 @@ function AdminPage() {
                       : role === 'admin'
                         ? 'Admin'
                         : 'Nutzer'
+                  const canDemote =
+                    user.role === 'admin' &&
+                    user.is_superadmin === false &&
+                    user.id !== currentUser?.id
+                  const isDemotionPending =
+                    pendingDemotionUserId === user.id
 
                   return (
                     <li
@@ -151,7 +178,58 @@ function AdminPage() {
                                 : 'Zum Admin machen'}
                             </button>
                           )}
+                        {canDemote && !isDemotionPending && (
+                          <button
+                            type="button"
+                            className="admin-demote-button"
+                            disabled={isSubmitting}
+                            onClick={() =>
+                              openDemotionConfirmation(user.id)
+                            }
+                          >
+                            Zum Nutzer zurückstufen
+                          </button>
+                        )}
                       </div>
+                      {canDemote && isDemotionPending && (
+                        <div className="admin-demote-confirmation">
+                          <p>
+                            Admin „
+                            {user.display_name ?? user.username}“ wirklich
+                            zum Nutzer zurückstufen?
+                          </p>
+                          <div className="admin-demote-confirmation-actions">
+                            <button
+                              type="button"
+                              className={`admin-demote-confirm${
+                                isSubmitting &&
+                                activeUserId === user.id
+                                  ? ' is-submitting'
+                                  : ''
+                              }`}
+                              disabled={isSubmitting}
+                              onClick={() =>
+                                void handleDemoteUser(user.id)
+                              }
+                            >
+                              {isSubmitting &&
+                              activeUserId === user.id
+                                ? 'Wird geändert...'
+                                : 'Zurückstufen'}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-demote-cancel"
+                              disabled={isSubmitting}
+                              onClick={() =>
+                                setPendingDemotionUserId(null)
+                              }
+                            >
+                              Abbrechen
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   )
                 })}
