@@ -596,7 +596,10 @@ button {
 .admin-promote-button,
 .admin-demote-button,
 .admin-demote-confirm,
-.admin-demote-cancel {
+.admin-demote-cancel,
+.admin-delete-button,
+.admin-delete-confirm,
+.admin-delete-cancel {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
@@ -610,14 +613,20 @@ button {
 .admin-promote-button:hover:not(:disabled),
 .admin-demote-button:hover:not(:disabled),
 .admin-demote-confirm:hover:not(:disabled),
-.admin-demote-cancel:hover:not(:disabled) {
+.admin-demote-cancel:hover:not(:disabled),
+.admin-delete-button:hover:not(:disabled),
+.admin-delete-confirm:hover:not(:disabled),
+.admin-delete-cancel:hover:not(:disabled) {
   background-color: var(--color-surface-alt);
 }
 
 .admin-promote-button:focus-visible,
 .admin-demote-button:focus-visible,
 .admin-demote-confirm:focus-visible,
-.admin-demote-cancel:focus-visible {
+.admin-demote-cancel:focus-visible,
+.admin-delete-button:focus-visible,
+.admin-delete-confirm:focus-visible,
+.admin-delete-cancel:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
 }
@@ -625,13 +634,17 @@ button {
 .admin-promote-button:disabled,
 .admin-demote-button:disabled,
 .admin-demote-confirm:disabled,
-.admin-demote-cancel:disabled {
+.admin-demote-cancel:disabled,
+.admin-delete-button:disabled,
+.admin-delete-confirm:disabled,
+.admin-delete-cancel:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
 .admin-promote-button.is-submitting,
-.admin-demote-confirm.is-submitting {
+.admin-demote-confirm.is-submitting,
+.admin-delete-confirm.is-submitting {
   cursor: progress;
 }
 
@@ -649,6 +662,39 @@ button {
 }
 
 .admin-demote-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.admin-delete-button,
+.admin-delete-confirm {
+  border-color: #9b766e;
+  color: #d9b8b0;
+}
+
+.admin-delete-cancel {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.admin-delete-confirmation {
+  flex: 1 0 100%;
+  padding: var(--space-md);
+  border-left: 3px solid #9b766e;
+  background-color: color-mix(
+    in srgb,
+    #9b766e 10%,
+    var(--color-surface-alt)
+  );
+}
+
+.admin-delete-confirmation p {
+  color: #d9b8b0;
+}
+
+.admin-delete-confirmation-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);

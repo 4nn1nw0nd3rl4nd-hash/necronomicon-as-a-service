@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { useAdminRoleActions } from '../hooks/useAdminRoleActions'
 import { useAdminUsers } from '../hooks/useAdminUsers'
+import { useDeleteUser } from '../hooks/useDeleteUser'
 
 type AdminSection = 'users' | 'rounds'
 
@@ -11,19 +12,31 @@ function AdminPage() {
     useState<AdminSection>('users')
   const [pendingDemotionUserId, setPendingDemotionUserId] =
     useState<string | null>(null)
+  const [pendingDeletionUserId, setPendingDeletionUserId] =
+    useState<string | null>(null)
   const { users, isLoading, error, reload } = useAdminUsers()
   const {
-    isSubmitting,
+    isSubmitting: isRoleSubmitting,
     activeUserId,
     error: roleActionError,
     successMessage,
     promoteUser,
     demoteUser,
-    resetState,
+    resetState: resetRoleActionState,
   } = useAdminRoleActions()
+  const {
+    isSubmitting: isDeleting,
+    error: deleteError,
+    isSuccess: isDeleteSuccess,
+    deleteUser,
+    resetState: resetDeleteState,
+  } = useDeleteUser()
+  const isAnyActionSubmitting = isRoleSubmitting || isDeleting
 
   const handlePromoteUser = async (targetUserId: string) => {
     setPendingDemotionUserId(null)
+    setPendingDeletionUserId(null)
+    resetDeleteState()
     const wasPromoted = await promoteUser(targetUserId)
 
     if (wasPromoted) {
@@ -32,7 +45,9 @@ function AdminPage() {
   }
 
   const openDemotionConfirmation = (targetUserId: string) => {
-    resetState()
+    resetRoleActionState()
+    resetDeleteState()
+    setPendingDeletionUserId(null)
     setPendingDemotionUserId(targetUserId)
   }
 
@@ -41,6 +56,22 @@ function AdminPage() {
 
     if (wasDemoted) {
       setPendingDemotionUserId(null)
+      reload()
+    }
+  }
+
+  const openDeletionConfirmation = (targetUserId: string) => {
+    resetDeleteState()
+    resetRoleActionState()
+    setPendingDemotionUserId(null)
+    setPendingDeletionUserId(targetUserId)
+  }
+
+  const handleDeleteUser = async (targetUserId: string) => {
+    const wasDeleted = await deleteUser(targetUserId)
+
+    if (wasDeleted) {
+      setPendingDeletionUserId(null)
       reload()
     }
   }
@@ -104,6 +135,19 @@ function AdminPage() {
                 {roleActionError}
               </p>
             )}
+            {isDeleteSuccess && (
+              <p className="admin-action-message" role="status">
+                Nutzer wurde gelöscht.
+              </p>
+            )}
+            {deleteError && (
+              <p
+                className="admin-action-message admin-action-error"
+                role="alert"
+              >
+                {deleteError}
+              </p>
+            )}
             {isLoading ? (
               <p className="admin-users-status" role="status">
                 Nutzer werden geladen...
@@ -137,6 +181,11 @@ function AdminPage() {
                     user.id !== currentUser?.id
                   const isDemotionPending =
                     pendingDemotionUserId === user.id
+                  const canDelete =
+                    user.id !== currentUser?.id &&
+                    user.is_superadmin === false
+                  const isDeletionPending =
+                    pendingDeletionUserId === user.id
 
                   return (
                     <li
@@ -162,17 +211,17 @@ function AdminPage() {
                             <button
                               type="button"
                               className={`admin-promote-button${
-                                isSubmitting &&
+                                isRoleSubmitting &&
                                 activeUserId === user.id
                                   ? ' is-submitting'
                                   : ''
                               }`}
-                              disabled={isSubmitting}
+                              disabled={isAnyActionSubmitting}
                               onClick={() =>
                                 void handlePromoteUser(user.id)
                               }
                             >
-                              {isSubmitting &&
+                              {isRoleSubmitting &&
                               activeUserId === user.id
                                 ? 'Wird geändert...'
                                 : 'Zum Admin machen'}
@@ -182,12 +231,24 @@ function AdminPage() {
                           <button
                             type="button"
                             className="admin-demote-button"
-                            disabled={isSubmitting}
+                            disabled={isAnyActionSubmitting}
                             onClick={() =>
                               openDemotionConfirmation(user.id)
                             }
                           >
                             Zum Nutzer zurückstufen
+                          </button>
+                        )}
+                        {canDelete && !isDeletionPending && (
+                          <button
+                            type="button"
+                            className="admin-delete-button"
+                            disabled={isAnyActionSubmitting}
+                            onClick={() =>
+                              openDeletionConfirmation(user.id)
+                            }
+                          >
+                            Nutzer löschen
                           </button>
                         )}
                       </div>
@@ -202,17 +263,17 @@ function AdminPage() {
                             <button
                               type="button"
                               className={`admin-demote-confirm${
-                                isSubmitting &&
+                                isRoleSubmitting &&
                                 activeUserId === user.id
                                   ? ' is-submitting'
                                   : ''
                               }`}
-                              disabled={isSubmitting}
+                              disabled={isAnyActionSubmitting}
                               onClick={() =>
                                 void handleDemoteUser(user.id)
                               }
                             >
-                              {isSubmitting &&
+                              {isRoleSubmitting &&
                               activeUserId === user.id
                                 ? 'Wird geändert...'
                                 : 'Zurückstufen'}
@@ -220,9 +281,47 @@ function AdminPage() {
                             <button
                               type="button"
                               className="admin-demote-cancel"
-                              disabled={isSubmitting}
+                              disabled={isAnyActionSubmitting}
                               onClick={() =>
                                 setPendingDemotionUserId(null)
+                              }
+                            >
+                              Abbrechen
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {canDelete && isDeletionPending && (
+                        <div className="admin-delete-confirmation">
+                          <p>
+                            Nutzer „
+                            {user.display_name ?? user.username}“ wirklich
+                            löschen? Diese Aktion kann nicht rückgängig
+                            gemacht werden. Bestehende
+                            Spielleitungs-Runden werden an den Superadmin
+                            übertragen.
+                          </p>
+                          <div className="admin-delete-confirmation-actions">
+                            <button
+                              type="button"
+                              className={`admin-delete-confirm${
+                                isDeleting ? ' is-submitting' : ''
+                              }`}
+                              disabled={isAnyActionSubmitting}
+                              onClick={() =>
+                                void handleDeleteUser(user.id)
+                              }
+                            >
+                              {isDeleting
+                                ? 'Wird gelöscht...'
+                                : 'Endgültig löschen'}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-delete-cancel"
+                              disabled={isAnyActionSubmitting}
+                              onClick={() =>
+                                setPendingDeletionUserId(null)
                               }
                             >
                               Abbrechen
