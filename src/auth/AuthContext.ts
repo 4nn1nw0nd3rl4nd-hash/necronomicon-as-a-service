@@ -5,6 +5,7 @@ export type AuthContextValue = {
   session: Session | null
   user: User | null
   isLoading: boolean
+  isPasswordRecovery: boolean
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(

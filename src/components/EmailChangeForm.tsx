@@ -78,7 +78,9 @@ function EmailChangeForm() {
         )}
         {status === 'pending' && (
           <p className="profile-form-success" role="status">
-            Änderung angefordert. Bitte bestätige die neue E-Mail-Adresse.
+            E-Mail-Änderung angefordert. Bitte folge den
+            Bestätigungslinks, die an deine aktuelle und deine neue
+            E-Mail-Adresse gesendet wurden.
             {pendingEmail && (
               <span className="email-change-pending">
                 Ausstehende Adresse: {pendingEmail}

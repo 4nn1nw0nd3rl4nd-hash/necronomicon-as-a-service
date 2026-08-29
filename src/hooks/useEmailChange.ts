@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import {
   authErrorMessages,
@@ -32,6 +32,15 @@ export function useEmailChange() {
   const { session, user } = useAuth()
   const [state, setState] = useState<EmailChangeState>(initialState)
   const isRequestInFlightRef = useRef(false)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const resetState = useCallback(() => {
     setState((currentState) => ({
@@ -86,37 +95,47 @@ export function useEmailChange() {
         )
 
         if (error) {
-          setState({
-            ...initialState,
-            error: getEmailChangeErrorMessage(error),
-          })
+          if (isMountedRef.current) {
+            setState({
+              ...initialState,
+              error: getEmailChangeErrorMessage(error),
+            })
+          }
           return null
         }
 
         if (emailsMatch(data.user.email, normalizedEmail)) {
-          setState({ ...initialState, status: 'changed' })
+          if (isMountedRef.current) {
+            setState({ ...initialState, status: 'changed' })
+          }
           return 'changed'
         }
 
         if (emailsMatch(data.user.new_email, normalizedEmail)) {
-          setState({
-            ...initialState,
-            status: 'pending',
-            pendingEmail: data.user.new_email ?? normalizedEmail,
-          })
+          if (isMountedRef.current) {
+            setState({
+              ...initialState,
+              status: 'pending',
+              pendingEmail: data.user.new_email ?? normalizedEmail,
+            })
+          }
           return 'pending'
         }
 
-        setState({
-          ...initialState,
-          error: authErrorMessages.unknownEmailChange,
-        })
+        if (isMountedRef.current) {
+          setState({
+            ...initialState,
+            error: authErrorMessages.unknownEmailChange,
+          })
+        }
         return null
       } catch {
-        setState({
-          ...initialState,
-          error: getEmailChangeErrorMessage(),
-        })
+        if (isMountedRef.current) {
+          setState({
+            ...initialState,
+            error: getEmailChangeErrorMessage(),
+          })
+        }
         return null
       } finally {
         isRequestInFlightRef.current = false
@@ -125,11 +144,15 @@ export function useEmailChange() {
     [session, user],
   )
 
+  const pendingEmailFromUser = user?.new_email?.trim() || null
+  const status = pendingEmailFromUser ? 'pending' : state.status
+  const pendingEmail = pendingEmailFromUser ?? state.pendingEmail
+
   return {
     isSubmitting: state.isSubmitting,
     error: state.error,
-    status: state.status,
-    pendingEmail: state.pendingEmail,
+    status,
+    pendingEmail,
     changeEmail,
     resetState,
   }

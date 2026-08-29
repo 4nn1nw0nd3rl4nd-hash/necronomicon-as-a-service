@@ -161,6 +161,20 @@ button {
   font-weight: 600;
 }
 
+.auth-heading {
+  margin-bottom: var(--space-xl);
+}
+
+.auth-heading .auth-title {
+  margin-bottom: var(--space-sm);
+}
+
+.auth-description {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
 .auth-form {
   display: grid;
   gap: var(--space-lg);
@@ -251,6 +265,24 @@ button {
 
 .auth-alternate:hover {
   color: var(--color-accent);
+}
+
+.auth-password-reset {
+  display: block;
+  margin-top: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: right;
+  text-underline-offset: 0.2em;
+}
+
+.auth-password-reset:hover {
+  color: var(--color-accent);
+}
+
+.auth-password-reset:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
 }
 
 .app-shell {

@@ -9,6 +9,8 @@ export const authErrorMessages = {
     'Die neue E-Mail-Adresse entspricht deiner aktuellen E-Mail-Adresse.',
   emailChangeRateLimit:
     'Zu viele E-Mails wurden angefordert. Bitte versuche es später erneut.',
+  emailChangeUnavailable:
+    'Diese E-Mail-Adresse kann nicht verwendet werden.',
   emailChangeSessionMissing:
     'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
   unknownEmailChange:
@@ -28,6 +30,7 @@ export const authErrorMessages = {
     'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
   unknownPasswordChange:
     'Das Passwort konnte nicht geändert werden. Bitte versuche es erneut.',
+  emailNotConfirmed: 'Bitte bestätige zuerst deine E-Mail-Adresse.',
   unknownLogin: 'Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.',
   unknownRegistration:
     'Die Registrierung ist fehlgeschlagen. Bitte versuche es erneut.',
@@ -87,7 +90,7 @@ export function getEmailChangeErrorMessage(error?: AuthError) {
     error.code === 'email_exists' ||
     error.code === 'user_already_exists'
   ) {
-    return authErrorMessages.emailAlreadyRegistered
+    return authErrorMessages.emailChangeUnavailable
   }
 
   if (error.code === 'over_email_send_rate_limit') {
@@ -115,6 +118,10 @@ export function getEmailChangeErrorMessage(error?: AuthError) {
 }
 
 export function getLoginErrorMessage(error?: AuthError) {
+  if (error?.code === 'email_not_confirmed') {
+    return authErrorMessages.emailNotConfirmed
+  }
+
   if (
     error?.code === 'invalid_credentials' ||
     error?.message.toLowerCase().includes('invalid login credentials')

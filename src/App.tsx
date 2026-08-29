@@ -3,11 +3,13 @@ import AppLayout from './layouts/AppLayout'
 import AdminPage from './pages/AdminPage'
 import AdminRoundDetailsPage from './pages/AdminRoundDetailsPage'
 import DashboardPage from './pages/DashboardPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
 import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import RoundDetailsPage from './pages/RoundDetailsPage'
 import RoundsPage from './pages/RoundsPage'
 import GuestOnly from './routes/GuestOnly'
@@ -18,9 +20,14 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route
+          path="/forgot-password"
+          element={<ForgotPasswordPage />}
+        />
       </Route>
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<AppLayout />}>

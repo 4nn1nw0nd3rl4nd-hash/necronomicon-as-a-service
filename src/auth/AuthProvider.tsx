@@ -7,6 +7,7 @@ import { AuthContext } from './AuthContext'
 function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -14,13 +15,20 @@ function AuthProvider({ children }: PropsWithChildren) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) {
         return
       }
 
       hasAuthStateChanged = true
       setSession(nextSession)
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true)
+      } else if (event === 'SIGNED_OUT') {
+        setIsPasswordRecovery(false)
+      }
+
       setIsLoading(false)
     })
 
@@ -51,7 +59,9 @@ function AuthProvider({ children }: PropsWithChildren) {
   const user = session?.user ?? null
 
   return (
-    <AuthContext.Provider value={{ session, user, isLoading }}>
+    <AuthContext.Provider
+      value={{ session, user, isLoading, isPasswordRecovery }}
+    >
       {children}
     </AuthContext.Provider>
   )

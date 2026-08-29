@@ -106,6 +106,9 @@ function LoginPage() {
             {errorMessage}
           </p>
         )}
+        <Link className="auth-password-reset" to="/forgot-password">
+          Passwort vergessen?
+        </Link>
         <Link className="auth-alternate" to="/register">
           Noch kein Konto? Registrieren
         </Link>
