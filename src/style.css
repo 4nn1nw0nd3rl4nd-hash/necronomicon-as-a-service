@@ -1437,6 +1437,98 @@ button {
   font-size: 0.85rem;
 }
 
+.character-round-assignment {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.character-round-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.character-round-summary h2,
+.character-round-summary p,
+.character-round-panel p {
+  margin: 0;
+}
+
+.character-round-summary h2 {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.character-round-summary p {
+  margin-top: var(--space-xs);
+  overflow-wrap: anywhere;
+}
+
+.character-round-secondary-action,
+.character-round-confirm-action {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.character-round-secondary-action:hover:not(:disabled),
+.character-round-confirm-action:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.character-round-secondary-action:focus-visible,
+.character-round-confirm-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.character-round-secondary-action:disabled,
+.character-round-confirm-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.character-round-panel {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-left: 2px solid var(--color-accent);
+  background-color: var(--color-surface-alt);
+}
+
+.character-round-confirmation {
+  border-left-color: var(--color-border);
+}
+
+.character-round-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.character-round-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.character-round-actions .auth-submit {
+  width: auto;
+}
+
+.character-round-actions .auth-submit[data-submitting='true'],
+.character-round-confirm-action[data-submitting='true'] {
+  cursor: progress;
+}
+
 .character-sheet {
   min-width: 0;
 }
@@ -1808,6 +1900,70 @@ button {
   margin: 0;
 }
 
+.round-characters-list {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(13rem, 100%), 1fr)
+  );
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-character-link {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+.round-character-link:hover .round-character-card {
+  border-color: var(--color-accent);
+}
+
+.round-character-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-character-card {
+  display: grid;
+  height: 100%;
+  min-width: 0;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.round-character-card h3,
+.round-character-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.round-character-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.round-character-card p,
+.round-character-owner {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.round-character-owner {
+  justify-self: start;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
 .round-members-list {
   display: grid;
   margin: 0;
@@ -2076,6 +2232,7 @@ button {
   .round-members-card,
   .character-detail-header,
   .character-template-unavailable,
+  .character-round-assignment,
   .character-sheet-section {
     padding: var(--space-lg);
   }
@@ -2098,10 +2255,15 @@ button {
 
   .round-detail-title-row,
   .character-detail-title-row,
+  .character-round-summary,
   .character-edit-actions,
   .edit-round-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .character-round-summary .character-round-secondary-action {
+    width: 100%;
   }
 
   .round-member-summary {

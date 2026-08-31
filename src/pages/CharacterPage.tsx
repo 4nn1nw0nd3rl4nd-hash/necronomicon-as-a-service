@@ -1,14 +1,60 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
+import CharacterRoundAssignment from '../components/CharacterRoundAssignment'
 import { CharacterSheetRenderer } from '../components/CharacterSheetRenderer'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useCharacter } from '../hooks/useCharacter'
 import { useSetCharacterCheck } from '../hooks/useSetCharacterCheck'
 import { useUpdateCharacter } from '../hooks/useUpdateCharacter'
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function getReturnLink(locationState: unknown) {
+  const fallback = {
+    label: 'Zurück zu Meine Charaktere',
+    to: '/app/characters',
+  }
+
+  if (!locationState || typeof locationState !== 'object') {
+    return fallback
+  }
+
+  const context = Reflect.get(locationState, 'characterReturnContext')
+
+  if (!context || typeof context !== 'object') {
+    return fallback
+  }
+
+  const source = Reflect.get(context, 'source')
+
+  if (source === 'characters') {
+    return fallback
+  }
+
+  const roundId = Reflect.get(context, 'roundId')
+
+  if (
+    source === 'round' &&
+    typeof roundId === 'string' &&
+    uuidPattern.test(roundId)
+  ) {
+    return {
+      label: 'Zurück zur Runde',
+      to: `/app/rounds/${roundId}`,
+    }
+  }
+
+  return fallback
+}
+
 function CharacterPage() {
   const { characterId } = useParams()
+  const location = useLocation()
+  const returnLink = getReturnLink(location.state)
+  const { user } = useAuth()
   const {
     character,
     isLoading,
@@ -180,6 +226,16 @@ function CharacterPage() {
           </p>
         </header>
 
+        {user &&
+          character.owner_user_id === user.id &&
+          !isEditing && (
+            <CharacterRoundAssignment
+              character={character}
+              onChanged={reload}
+              ownerUserId={user.id}
+            />
+          )}
+
         {template ? (
           isEditing ? (
             <form className="character-edit-form" onSubmit={handleSubmit}>
@@ -244,8 +300,8 @@ function CharacterPage() {
 
   return (
     <section className="character-detail-page">
-      <Link className="round-detail-back" to="/app/characters">
-        Zurück zu Meine Charaktere
+      <Link className="round-detail-back" to={returnLink.to}>
+        {returnLink.label}
       </Link>
       {content}
     </section>

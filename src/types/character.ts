@@ -14,3 +14,14 @@ export type CharacterDetails = CharacterSummary & {
   created_by_user_id: string | null
   deleted_at: string | null
 }
+
+export type RoundCharacterSummary = Pick<
+  CharacterSummary,
+  | 'id'
+  | 'name'
+  | 'owner_user_id'
+  | 'round_id'
+  | 'template_key'
+  | 'template_version'
+  | 'updated_at'
+>

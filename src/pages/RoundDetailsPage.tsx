@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import AddRoundMemberSearch from '../components/AddRoundMemberSearch'
 import EditRoundForm from '../components/EditRoundForm'
+import RoundCharactersSection from '../components/RoundCharactersSection'
 import { useRoundDetails } from '../hooks/useRoundDetails'
 import { useRoundMembers } from '../hooks/useRoundMembers'
 import { useRemoveRoundPlayer } from '../hooks/useRemoveRoundPlayer'
@@ -374,6 +375,16 @@ function RoundDetailsPage() {
         Zurück zu Meine Runden
       </Link>
       {content}
+      {round && (
+        <RoundCharactersSection
+          key={`${round.id}:${membershipRole ?? 'none'}:${members
+            .map(({ user_id }) => user_id)
+            .join(',')}`}
+          members={members}
+          membershipRole={membershipRole}
+          roundId={round.id}
+        />
+      )}
       {round && (
         <section
           className="round-members-card"

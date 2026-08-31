@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useMyCharacters } from '../hooks/useMyCharacters'
+import { useMyRounds } from '../hooks/useMyRounds'
 
 function getTemplateLabel(templateKey: string, templateVersion: number) {
   const template = findCharacterTemplate(templateKey, templateVersion)
@@ -9,7 +11,20 @@ function getTemplateLabel(templateKey: string, templateVersion: number) {
 }
 
 function CharactersPage() {
+  const { user } = useAuth()
   const { characters, isLoading, error, reload } = useMyCharacters()
+  const { rounds: myRounds } = useMyRounds(user?.id)
+
+  const getRoundLabel = (roundId: string | null) => {
+    if (!roundId) {
+      return 'Keine Runde'
+    }
+
+    return (
+      myRounds.find(({ round_id }) => round_id === roundId)?.round.name ??
+      'Einer Runde zugeordnet'
+    )
+  }
 
   let content
 
@@ -38,6 +53,9 @@ function CharactersPage() {
             <Link
               aria-label={`Charakter ${character.name} öffnen`}
               className="round-card-link"
+              state={{
+                characterReturnContext: { source: 'characters' },
+              }}
               to={`/app/characters/${character.id}`}
             >
               <article className="round-card">
@@ -56,11 +74,7 @@ function CharactersPage() {
                   </div>
                   <div>
                     <dt>Rundenzuordnung</dt>
-                    <dd>
-                      {character.round_id
-                        ? 'Einer Runde zugeordnet'
-                        : 'Keine Runde'}
-                    </dd>
+                    <dd>{getRoundLabel(character.round_id)}</dd>
                   </div>
                 </dl>
               </article>
