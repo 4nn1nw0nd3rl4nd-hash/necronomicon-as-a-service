@@ -1,6 +1,6 @@
-# Necronomicon
+# Necronomicon-as-a-Service
 
-Necronomicon ist eine Webplattform für die Organisation von Pen-&-Paper-Runden.
+Necronomicon-as-a-Service ist eine Webplattform für die Organisation von Pen-&-Paper-Runden.
 
 Phase 1 ist funktional abgeschlossen. Ein produktionsreifer Mail- und Account-Flow sowie die Charakterverwaltung folgen in späteren Schritten.
 
