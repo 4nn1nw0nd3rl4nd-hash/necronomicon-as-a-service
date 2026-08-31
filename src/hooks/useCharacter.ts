@@ -123,12 +123,38 @@ export function useCharacter(characterId: string | undefined) {
     }
   }, [characterId])
 
+  const updateCharacterDataField = useCallback(
+    (fieldKey: string, value: boolean) => {
+      setState((currentState) => {
+        if (
+          currentState.characterId !== characterId ||
+          !currentState.character
+        ) {
+          return currentState
+        }
+
+        return {
+          ...currentState,
+          character: {
+            ...currentState.character,
+            data: {
+              ...currentState.character.data,
+              [fieldKey]: value,
+            },
+          },
+        }
+      })
+    },
+    [characterId],
+  )
+
   if (!hasValidCharacterId) {
     return {
       character: null,
       isLoading: false,
       error: 'Charakter nicht verfügbar.',
       reload,
+      updateCharacterDataField,
     }
   }
 
@@ -138,6 +164,7 @@ export function useCharacter(characterId: string | undefined) {
       isLoading: true,
       error: null,
       reload,
+      updateCharacterDataField,
     }
   }
 
@@ -146,5 +173,6 @@ export function useCharacter(characterId: string | undefined) {
     isLoading: state.isLoading,
     error: state.error,
     reload,
+    updateCharacterDataField,
   }
 }

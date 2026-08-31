@@ -1,49 +1,74 @@
+import { Fragment } from 'react'
 import type {
   CharacterTemplateDefinition,
   CharacterTemplateField,
 } from '../characterTemplates'
 import type { CharacterDetails } from '../types/character'
 
-type CharacterSheetRendererProps = {
+type CharacterSheetRendererBaseProps = {
   character: CharacterDetails
   template: CharacterTemplateDefinition
 }
+
+type CharacterSheetRendererProps = CharacterSheetRendererBaseProps &
+  (
+    | {
+        mode: 'view'
+        isCheckSubmitting: (fieldKey: string) => boolean
+        onCheckChange: (fieldKey: string, checked: boolean) => void
+      }
+    | {
+        mode: 'edit'
+        draftName: string
+        draftData: Record<string, unknown>
+        isDisabled: boolean
+        onNameChange: (value: string) => void
+        onDataFieldChange: (key: string, value: string | boolean) => void
+      }
+  )
 
 function byOrder<T extends { order: number }>(items: readonly T[]) {
   return [...items].sort((first, second) => first.order - second.order)
 }
 
-function CharacterField({
+function ViewCharacterField({
   character,
   field,
+  isCheckSubmitting,
+  onCheckChange,
 }: {
   character: CharacterDetails
   field: CharacterTemplateField
+  isCheckSubmitting: (fieldKey: string) => boolean
+  onCheckChange: (fieldKey: string, checked: boolean) => void
 }) {
   const rawValue = character.data?.[field.key]
   const showLabel = field.showLabel !== false
 
   if (field.type === 'check') {
     const isChecked = rawValue === true
+    const isSubmitting = isCheckSubmitting(field.key)
 
     return (
-      <div
-        aria-label={`${field.label}: ${isChecked ? 'angekreuzt' : 'nicht angekreuzt'}`}
-        className="character-sheet-field character-sheet-field-check"
-        role="img"
+      <label
+        aria-busy={isSubmitting}
+        className="character-sheet-field character-sheet-field-check character-sheet-view-check"
+        data-submitting={isSubmitting}
       >
-        <span
-          aria-hidden="true"
-          className={`character-sheet-check${isChecked ? ' character-sheet-check-checked' : ''}`}
-        >
-          {isChecked ? '✓' : ''}
-        </span>
+        <input
+          aria-label={showLabel ? undefined : field.label}
+          checked={isChecked}
+          className="character-sheet-checkbox-input"
+          disabled={isSubmitting}
+          onChange={(event) =>
+            onCheckChange(field.key, event.target.checked)
+          }
+          type="checkbox"
+        />
         {showLabel && (
-          <span aria-hidden="true" className="character-sheet-field-label">
-            {field.label}
-          </span>
+          <span className="character-sheet-field-label">{field.label}</span>
         )}
-      </div>
+      </label>
     )
   }
 
@@ -68,10 +93,122 @@ function CharacterField({
   )
 }
 
-export function CharacterSheetRenderer({
-  character,
-  template,
-}: CharacterSheetRendererProps) {
+function EditableCharacterField({
+  draftName,
+  draftData,
+  field,
+  isDisabled,
+  onNameChange,
+  onDataFieldChange,
+}: {
+  draftName: string
+  draftData: Record<string, unknown>
+  field: CharacterTemplateField
+  isDisabled: boolean
+  onNameChange: (value: string) => void
+  onDataFieldChange: (key: string, value: string | boolean) => void
+}) {
+  const rawValue = draftData[field.key]
+  const showLabel = field.showLabel !== false
+
+  if (field.type === 'check') {
+    return (
+      <label className="character-sheet-field character-sheet-field-check">
+        <input
+          aria-label={showLabel ? undefined : field.label}
+          checked={rawValue === true}
+          className="character-sheet-checkbox-input"
+          disabled={isDisabled}
+          onChange={(event) =>
+            onDataFieldChange(field.key, event.target.checked)
+          }
+          type="checkbox"
+        />
+        {showLabel && (
+          <span className="character-sheet-field-label">{field.label}</span>
+        )}
+      </label>
+    )
+  }
+
+  const value =
+    field.type === 'character_name'
+      ? draftName
+      : typeof rawValue === 'string'
+        ? rawValue
+        : ''
+  const commonProps = {
+    'aria-label': showLabel ? undefined : field.label,
+    disabled: isDisabled,
+    value,
+  }
+
+  return (
+    <label
+      className={`character-sheet-field character-sheet-field-${field.type}`}
+    >
+      {showLabel && (
+        <span className="character-sheet-field-label">{field.label}</span>
+      )}
+      {field.type === 'long' ? (
+        <textarea
+          {...commonProps}
+          className="character-sheet-input character-sheet-textarea"
+          onChange={(event) =>
+            onDataFieldChange(field.key, event.target.value)
+          }
+          rows={4}
+        />
+      ) : (
+        <input
+          {...commonProps}
+          className="character-sheet-input"
+          maxLength={field.type === 'character_name' ? 100 : undefined}
+          onChange={(event) => {
+            if (field.type === 'character_name') {
+              onNameChange(event.target.value)
+              return
+            }
+
+            onDataFieldChange(field.key, event.target.value)
+          }}
+          type="text"
+        />
+      )}
+    </label>
+  )
+}
+
+function renderCharacterField(
+  props: CharacterSheetRendererProps,
+  field: CharacterTemplateField,
+) {
+  if (props.mode === 'edit') {
+    return (
+      <EditableCharacterField
+        draftData={props.draftData}
+        draftName={props.draftName}
+        field={field}
+        isDisabled={props.isDisabled}
+        onDataFieldChange={props.onDataFieldChange}
+        onNameChange={props.onNameChange}
+      />
+    )
+  }
+
+  return (
+    <ViewCharacterField
+      character={props.character}
+      field={field}
+      isCheckSubmitting={props.isCheckSubmitting}
+      onCheckChange={props.onCheckChange}
+    />
+  )
+}
+
+export function CharacterSheetRenderer(props: CharacterSheetRendererProps) {
+  const { character, template } = props
+
   return (
     <div className="character-sheet" aria-label={`Charakterbogen ${character.name}`}>
       <div className="character-sheet-grid">
@@ -85,11 +222,9 @@ export function CharacterSheetRenderer({
             {section.fields && section.fields.length > 0 && (
               <div className="character-sheet-fields">
                 {byOrder(section.fields).map((field) => (
-                  <CharacterField
-                    character={character}
-                    field={field}
-                    key={field.key}
-                  />
+                  <Fragment key={field.key}>
+                    {renderCharacterField(props, field)}
+                  </Fragment>
                 ))}
               </div>
             )}
@@ -101,11 +236,9 @@ export function CharacterSheetRenderer({
                     <h3>{group.label}</h3>
                     <div className="character-sheet-fields">
                       {byOrder(group.fields).map((field) => (
-                        <CharacterField
-                          character={character}
-                          field={field}
-                          key={field.key}
-                        />
+                        <Fragment key={field.key}>
+                          {renderCharacterField(props, field)}
+                        </Fragment>
                       ))}
                     </div>
                   </section>

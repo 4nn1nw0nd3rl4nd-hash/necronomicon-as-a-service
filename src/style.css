@@ -1412,6 +1412,13 @@ button {
   gap: var(--space-sm);
 }
 
+.character-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
 .character-detail-header h1 {
   margin: 0;
   font-size: 2rem;
@@ -1526,22 +1533,109 @@ button {
   gap: var(--space-sm);
 }
 
-.character-sheet-check {
-  display: inline-grid;
-  width: 1.15rem;
-  height: 1.15rem;
-  place-items: center;
+.character-edit-button,
+.character-edit-cancel {
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  color: var(--color-background);
-  font-size: 0.8rem;
-  font-weight: 800;
-  line-height: 1;
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.character-sheet-check-checked {
+.character-edit-button:hover,
+.character-edit-cancel:hover:not(:disabled) {
   border-color: var(--color-accent);
-  background-color: var(--color-accent);
+}
+
+.character-edit-button:focus-visible,
+.character-edit-cancel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.character-edit-form {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-lg);
+}
+
+.character-sheet-input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.character-sheet-textarea {
+  min-height: 7rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.character-sheet-input:focus,
+.character-sheet-checkbox-input:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.character-sheet-input:disabled {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.character-sheet-checkbox-input {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.character-sheet-checkbox-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.character-sheet-view-check {
+  cursor: pointer;
+}
+
+.character-sheet-view-check[data-submitting='true'] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.character-sheet-view-check[data-submitting='true']
+  .character-sheet-field-label {
+  color: var(--color-text-muted);
+}
+
+.character-edit-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.character-edit-actions .auth-submit {
+  width: auto;
+}
+
+.character-edit-actions .auth-submit:disabled,
+.character-edit-button:disabled,
+.character-edit-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.character-edit-actions .auth-submit[data-submitting='true'] {
+  cursor: progress;
 }
 
 .round-detail-header {
@@ -2003,6 +2097,8 @@ button {
   }
 
   .round-detail-title-row,
+  .character-detail-title-row,
+  .character-edit-actions,
   .edit-round-actions {
     align-items: stretch;
     flex-direction: column;
@@ -2028,6 +2124,9 @@ button {
   }
 
   .round-edit-button,
+  .character-edit-button,
+  .character-edit-actions .auth-submit,
+  .character-edit-cancel,
   .edit-round-actions .auth-submit,
   .edit-round-cancel {
     width: 100%;
