@@ -1,11 +1,9 @@
-import { availableCharacterTemplates } from '../characterTemplates'
+import { Link } from 'react-router-dom'
+import { findCharacterTemplate } from '../characterTemplates'
 import { useMyCharacters } from '../hooks/useMyCharacters'
 
 function getTemplateLabel(templateKey: string, templateVersion: number) {
-  const template = availableCharacterTemplates.find(
-    (candidate) =>
-      candidate.key === templateKey && candidate.version === templateVersion,
-  )
+  const template = findCharacterTemplate(templateKey, templateVersion)
 
   return template?.name ?? 'Unbekannte Charaktervorlage'
 }
@@ -37,30 +35,36 @@ function CharactersPage() {
       <ul className="rounds-list">
         {characters.map((character) => (
           <li key={character.id}>
-            <article className="round-card">
-              <header className="round-card-header">
-                <h2>{character.name}</h2>
-              </header>
-              <dl className="round-details">
-                <div>
-                  <dt>System</dt>
-                  <dd>
-                    {getTemplateLabel(
-                      character.template_key,
-                      character.template_version,
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Rundenzuordnung</dt>
-                  <dd>
-                    {character.round_id
-                      ? 'Einer Runde zugeordnet'
-                      : 'Keine Runde'}
-                  </dd>
-                </div>
-              </dl>
-            </article>
+            <Link
+              aria-label={`Charakter ${character.name} öffnen`}
+              className="round-card-link"
+              to={`/app/characters/${character.id}`}
+            >
+              <article className="round-card">
+                <header className="round-card-header">
+                  <h2>{character.name}</h2>
+                </header>
+                <dl className="round-details">
+                  <div>
+                    <dt>System</dt>
+                    <dd>
+                      {getTemplateLabel(
+                        character.template_key,
+                        character.template_version,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Rundenzuordnung</dt>
+                    <dd>
+                      {character.round_id
+                        ? 'Einer Runde zugeordnet'
+                        : 'Keine Runde'}
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            </Link>
           </li>
         ))}
       </ul>
@@ -76,6 +80,9 @@ function CharactersPage() {
         Hier findest du deine Charaktere – unabhängig davon, ob sie bereits
         einer Runde zugeordnet sind.
       </p>
+      <Link className="characters-create-link" to="/app/characters/new">
+        Charakter erstellen
+      </Link>
       {content}
     </section>
   )

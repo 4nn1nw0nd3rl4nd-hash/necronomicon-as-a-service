@@ -8,3 +8,9 @@ export type CharacterSummary = {
   created_at: string
   updated_at: string
 }
+
+export type CharacterDetails = CharacterSummary & {
+  data: Record<string, unknown>
+  created_by_user_id: string | null
+  deleted_at: string | null
+}
