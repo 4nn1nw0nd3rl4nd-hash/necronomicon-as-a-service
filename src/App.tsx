@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import AdminPage from './pages/AdminPage'
 import AdminRoundDetailsPage from './pages/AdminRoundDetailsPage'
+import CharactersPage from './pages/CharactersPage'
 import DashboardPage from './pages/DashboardPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import LandingPage from './pages/LandingPage'
@@ -32,6 +33,7 @@ function App() {
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
+          <Route path="characters" element={<CharactersPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="rounds" element={<RoundsPage />} />
           <Route path="rounds/:roundId" element={<RoundDetailsPage />} />

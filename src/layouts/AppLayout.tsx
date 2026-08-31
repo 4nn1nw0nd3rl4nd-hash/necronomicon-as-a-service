@@ -58,6 +58,14 @@ function AppLayout() {
                 Meine Runden
               </NavLink>
               <NavLink
+                to="/app/characters"
+                className={({ isActive }) =>
+                  isActive ? 'nav-link active' : 'nav-link'
+                }
+              >
+                Charaktere
+              </NavLink>
+              <NavLink
                 to="/app/profile"
                 className={({ isActive }) =>
                   isActive ? 'nav-link active' : 'nav-link'
