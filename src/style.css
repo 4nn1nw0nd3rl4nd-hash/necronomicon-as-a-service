@@ -2013,7 +2013,18 @@ button {
   border-radius: var(--radius-sm);
 }
 
+.round-character-active-badge {
+  justify-self: start;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .round-character-assign-trigger,
+.round-character-set-active,
 .round-character-assignment-primary,
 .round-character-assignment-secondary {
   padding: var(--space-sm) var(--space-md);
@@ -2026,17 +2037,20 @@ button {
 }
 
 .round-character-assign-trigger,
+.round-character-set-active,
 .round-character-assignment-primary {
   border-color: var(--color-accent);
 }
 
 .round-character-assign-trigger:hover:not(:disabled),
+.round-character-set-active:hover:not(:disabled),
 .round-character-assignment-primary:hover:not(:disabled),
 .round-character-assignment-secondary:hover:not(:disabled) {
   background-color: var(--color-surface);
 }
 
 .round-character-assign-trigger:focus-visible,
+.round-character-set-active:focus-visible,
 .round-character-assignment-primary:focus-visible,
 .round-character-assignment-secondary:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -2044,10 +2058,48 @@ button {
 }
 
 .round-character-assign-trigger:disabled,
+.round-character-set-active:disabled,
 .round-character-assignment-primary:disabled,
 .round-character-assignment-secondary:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.round-character-set-active[data-submitting='true'] {
+  cursor: progress;
+}
+
+.round-character-active-overview {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round-character-active-overview li {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-left: 2px solid var(--color-border);
+  background-color: var(--color-surface-alt);
+}
+
+.round-character-active-overview strong,
+.round-character-active-overview span,
+.round-character-player-active-status {
+  overflow-wrap: anywhere;
+}
+
+.round-character-active-overview span,
+.round-character-player-active-status {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.round-character-player-active-status {
+  margin: 0;
 }
 
 .round-character-assignment-panel {

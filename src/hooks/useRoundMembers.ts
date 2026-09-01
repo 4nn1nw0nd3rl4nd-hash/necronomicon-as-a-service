@@ -57,6 +57,7 @@ export function useRoundMembers(
             round_id,
             user_id,
             role,
+            active_character_id,
             created_at,
             profile:profiles!inner (
               id,

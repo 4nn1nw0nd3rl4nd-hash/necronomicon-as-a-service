@@ -59,6 +59,7 @@ export type RoundMember = {
   round_id: string
   user_id: string
   role: RoundMembershipRole
+  active_character_id: string | null
   created_at: string
   profile: RoundMemberProfile
 }

@@ -4,6 +4,8 @@ import { findCharacterTemplate } from '../characterTemplates'
 import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
 import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCharacterKeepCopy'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
+import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
+import type { RoundCharacterSummary } from '../types/character'
 import type {
   RoundMember,
   RoundMembershipRole,
@@ -15,6 +17,8 @@ type RoundCharactersSectionProps = {
   roundStatus: RoundStatus
   membershipRole: RoundMembershipRole | null
   members: RoundMember[]
+  currentUserId: string | undefined
+  onMembershipsReload: () => void
 }
 
 function getTemplateName(templateKey: string, templateVersion: number) {
@@ -32,11 +36,38 @@ function normalizeCharacterName(name: string) {
   return name.trim().toLocaleLowerCase('de-DE')
 }
 
+function getActiveCharacterStatus(
+  member: RoundMember,
+  characters: RoundCharacterSummary[],
+) {
+  const ownedCharacters = characters.filter(
+    ({ owner_user_id }) => owner_user_id === member.user_id,
+  )
+
+  if (ownedCharacters.length === 0) {
+    return 'Kein Charakter zugeordnet'
+  }
+
+  if (!member.active_character_id) {
+    return 'Kein aktiver Charakter ausgewählt'
+  }
+
+  const activeCharacter = ownedCharacters.find(
+    ({ id }) => id === member.active_character_id,
+  )
+
+  return activeCharacter
+    ? `Aktiver Charakter: ${activeCharacter.name}`
+    : 'Aktiver Charakter ist nicht verfügbar'
+}
+
 function RoundCharactersSection({
   roundId,
   roundStatus,
   membershipRole,
   members,
+  currentUserId,
+  onMembershipsReload,
 }: RoundCharactersSectionProps) {
   const { characters, isLoading, error, reload } =
     useRoundCharacters(roundId)
@@ -52,6 +83,13 @@ function RoundCharactersSection({
     assignPreparedCharacterKeepCopy,
     resetState: resetAssignmentWithCopyState,
   } = useAssignPreparedCharacterKeepCopy()
+  const {
+    isSubmitting: isSettingActiveCharacter,
+    activeCharacterId: activeCharacterRequestId,
+    error: setActiveCharacterError,
+    setActiveCharacter,
+    resetState: resetSetActiveCharacterState,
+  } = useSetActiveCharacter()
   const [assignmentCharacterId, setAssignmentCharacterId] = useState<
     string | null
   >(null)
@@ -68,6 +106,15 @@ function RoundCharactersSection({
   const resetAssignmentState = () => {
     resetAssignmentWithoutCopyState()
     resetAssignmentWithCopyState()
+  }
+
+  const handleSetActiveCharacter = async (characterId: string) => {
+    resetSetActiveCharacterState()
+    const wasSet = await setActiveCharacter(characterId)
+
+    if (wasSet) {
+      onMembershipsReload()
+    }
   }
 
   const openAssignment = (characterId: string) => {
@@ -126,6 +173,7 @@ function RoundCharactersSection({
         setSelectedUserId('')
         setIsConfirmingAssignment(false)
         reload()
+        onMembershipsReload()
       }
     } finally {
       isAssignmentRequestInFlightRef.current = false
@@ -166,6 +214,20 @@ function RoundCharactersSection({
                 ({ user_id }) => user_id === character.owner_user_id,
               )
             : null
+          const ownerMembership = character.owner_user_id
+            ? members.find(
+                ({ user_id }) => user_id === character.owner_user_id,
+              )
+            : null
+          const isActiveCharacter =
+            ownerMembership?.active_character_id === character.id
+          const canSetActiveCharacter = Boolean(
+            character.owner_user_id &&
+              ownerMembership &&
+              !isActiveCharacter &&
+              (isGameMaster ||
+                character.owner_user_id === currentUserId),
+          )
           const selectedMember = members.find(
             ({ user_id }) => user_id === selectedUserId,
           )
@@ -210,8 +272,32 @@ function RoundCharactersSection({
                         : 'Vorbereitet'}
                     </span>
                   )}
+                  {isActiveCharacter && (
+                    <span className="round-character-active-badge">
+                      Aktiv
+                    </span>
+                  )}
                 </article>
               </Link>
+              {canSetActiveCharacter && (
+                <button
+                  className="round-character-set-active"
+                  data-submitting={
+                    isSettingActiveCharacter &&
+                    activeCharacterRequestId === character.id
+                  }
+                  disabled={isSettingActiveCharacter}
+                  onClick={() =>
+                    void handleSetActiveCharacter(character.id)
+                  }
+                  type="button"
+                >
+                  {isSettingActiveCharacter &&
+                  activeCharacterRequestId === character.id
+                    ? 'Wird als aktiv gesetzt...'
+                    : 'Als aktiv setzen'}
+                </button>
+              )}
               {canAssignCharacter && (
                 <button
                   aria-controls={`round-character-assignment-${character.id}`}
@@ -386,6 +472,41 @@ function RoundCharactersSection({
           </Link>
         )}
       </div>
+      {!isLoading && !error && isGameMaster && members.length > 0 && (
+        <ul
+          aria-label="Aktive Charaktere der Rundenmitglieder"
+          className="round-character-active-overview"
+        >
+          {members.map((member) => (
+            <li key={member.id}>
+              <strong>{getMemberName(member)}</strong>
+              <span>{getActiveCharacterStatus(member, characters)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!isLoading &&
+        !error &&
+        !isGameMaster &&
+        currentUserId &&
+        members.find(({ user_id }) => user_id === currentUserId) &&
+        characters.some(
+          ({ owner_user_id }) => owner_user_id === currentUserId,
+        ) && (
+          <p className="round-character-player-active-status">
+            {getActiveCharacterStatus(
+              members.find(
+                ({ user_id }) => user_id === currentUserId,
+              )!,
+              characters,
+            )}
+          </p>
+        )}
+      {setActiveCharacterError && (
+        <p className="profile-form-error" role="alert">
+          {setActiveCharacterError}
+        </p>
+      )}
       {content}
     </section>
   )

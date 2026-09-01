@@ -380,8 +380,10 @@ function RoundDetailsPage() {
           key={`${round.id}:${membershipRole ?? 'none'}:${members
             .map(({ user_id }) => user_id)
             .join(',')}`}
+          currentUserId={user?.id}
           members={members}
           membershipRole={membershipRole}
+          onMembershipsReload={reloadMembers}
           roundId={round.id}
           roundStatus={round.status}
         />
