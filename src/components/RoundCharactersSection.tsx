@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
+import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCharacterKeepCopy'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
 import type {
   RoundMember,
@@ -40,21 +41,40 @@ function RoundCharactersSection({
   const { characters, isLoading, error, reload } =
     useRoundCharacters(roundId)
   const {
-    isSubmitting,
-    error: assignmentError,
+    isSubmitting: isAssigningWithoutCopy,
+    error: assignmentWithoutCopyError,
     assignPreparedCharacter,
-    resetState: resetAssignmentState,
+    resetState: resetAssignmentWithoutCopyState,
   } = useAssignPreparedCharacter()
+  const {
+    isSubmitting: isAssigningWithCopy,
+    error: assignmentWithCopyError,
+    assignPreparedCharacterKeepCopy,
+    resetState: resetAssignmentWithCopyState,
+  } = useAssignPreparedCharacterKeepCopy()
   const [assignmentCharacterId, setAssignmentCharacterId] = useState<
     string | null
   >(null)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [isConfirmingAssignment, setIsConfirmingAssignment] =
     useState(false)
+  const isAssignmentRequestInFlightRef = useRef(false)
   const isGameMaster = membershipRole === 'game_master'
+  const isAssignmentSubmitting =
+    isAssigningWithoutCopy || isAssigningWithCopy
+  const assignmentError =
+    assignmentWithoutCopyError ?? assignmentWithCopyError
+
+  const resetAssignmentState = () => {
+    resetAssignmentWithoutCopyState()
+    resetAssignmentWithCopyState()
+  }
 
   const openAssignment = (characterId: string) => {
-    if (isSubmitting) {
+    if (
+      isAssignmentRequestInFlightRef.current ||
+      isAssignmentSubmitting
+    ) {
       return
     }
 
@@ -65,7 +85,10 @@ function RoundCharactersSection({
   }
 
   const cancelAssignment = () => {
-    if (isSubmitting) {
+    if (
+      isAssignmentRequestInFlightRef.current ||
+      isAssignmentSubmitting
+    ) {
       return
     }
 
@@ -75,21 +98,37 @@ function RoundCharactersSection({
     setIsConfirmingAssignment(false)
   }
 
-  const confirmAssignment = async () => {
-    if (!assignmentCharacterId || !selectedUserId) {
+  const confirmAssignment = async (keepCopy: boolean) => {
+    if (
+      !assignmentCharacterId ||
+      !selectedUserId ||
+      isAssignmentRequestInFlightRef.current
+    ) {
       return
     }
 
-    const wasAssigned = await assignPreparedCharacter(
-      assignmentCharacterId,
-      selectedUserId,
-    )
+    isAssignmentRequestInFlightRef.current = true
+    resetAssignmentState()
 
-    if (wasAssigned) {
-      setAssignmentCharacterId(null)
-      setSelectedUserId('')
-      setIsConfirmingAssignment(false)
-      reload()
+    try {
+      const wasAssigned = keepCopy
+        ? await assignPreparedCharacterKeepCopy(
+            assignmentCharacterId,
+            selectedUserId,
+          )
+        : await assignPreparedCharacter(
+            assignmentCharacterId,
+            selectedUserId,
+          )
+
+      if (wasAssigned) {
+        setAssignmentCharacterId(null)
+        setSelectedUserId('')
+        setIsConfirmingAssignment(false)
+        reload()
+      }
+    } finally {
+      isAssignmentRequestInFlightRef.current = false
     }
   }
 
@@ -178,7 +217,7 @@ function RoundCharactersSection({
                   aria-controls={`round-character-assignment-${character.id}`}
                   aria-expanded={isAssignmentOpen}
                   className="round-character-assign-trigger"
-                  disabled={isSubmitting}
+                  disabled={isAssignmentSubmitting}
                   onClick={() => openAssignment(character.id)}
                   type="button"
                 >
@@ -259,6 +298,20 @@ function RoundCharactersSection({
                         Runde weiterhin ansehen und bearbeiten, aber nicht mehr
                         löschen, kopieren oder einem anderen Spieler zuweisen.
                       </p>
+                      <div className="round-character-assignment-options">
+                        <p>
+                          <strong>Dauerhaft zuweisen:</strong> Der Charakter
+                          geht an den Spieler. Es wird keine Kopie erstellt.
+                        </p>
+                        <p>
+                          <strong>
+                            Kopie behalten &amp; dauerhaft zuweisen:
+                          </strong>{' '}
+                          Der Charakter geht an den Spieler. Zusätzlich bleibt
+                          eine unabhängige vorbereitete Kopie in dieser Runde
+                          erhalten.
+                        </p>
+                      </div>
                       {assignmentError && (
                         <p className="profile-form-error" role="alert">
                           {assignmentError}
@@ -267,20 +320,37 @@ function RoundCharactersSection({
                       <div className="round-character-assignment-actions">
                         <button
                           className="round-character-assignment-primary"
-                          data-submitting={isSubmitting}
-                          disabled={isSubmitting || !selectedMember}
-                          onClick={() => void confirmAssignment()}
+                          data-submitting={isAssignmentSubmitting}
+                          disabled={
+                            isAssignmentSubmitting || !selectedMember
+                          }
+                          onClick={() => void confirmAssignment(false)}
                           type="button"
                         >
-                          {isSubmitting
+                          {isAssigningWithoutCopy
                             ? 'Wird zugewiesen...'
                             : hasVisibleNameCollision
                               ? 'Trotzdem dauerhaft zuweisen'
                               : 'Dauerhaft zuweisen'}
                         </button>
                         <button
+                          className="round-character-assignment-primary"
+                          data-submitting={isAssignmentSubmitting}
+                          disabled={
+                            isAssignmentSubmitting || !selectedMember
+                          }
+                          onClick={() => void confirmAssignment(true)}
+                          type="button"
+                        >
+                          {isAssigningWithCopy
+                            ? 'Kopie wird erstellt und zugewiesen...'
+                            : hasVisibleNameCollision
+                              ? 'Kopie behalten & trotzdem zuweisen'
+                              : 'Kopie behalten & dauerhaft zuweisen'}
+                        </button>
+                        <button
                           className="round-character-assignment-secondary"
-                          disabled={isSubmitting}
+                          disabled={isAssignmentSubmitting}
                           onClick={cancelAssignment}
                           type="button"
                         >

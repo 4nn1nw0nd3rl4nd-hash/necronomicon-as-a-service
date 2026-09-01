@@ -2074,10 +2074,25 @@ button {
   color: var(--color-text);
 }
 
+.round-character-assignment-options {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.round-character-assignment-options strong {
+  color: var(--color-text);
+}
+
 .round-character-assignment-actions {
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
   gap: var(--space-sm);
+}
+
+.round-character-assignment-actions > button {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .round-character-assignment-primary[data-submitting='true'] {
