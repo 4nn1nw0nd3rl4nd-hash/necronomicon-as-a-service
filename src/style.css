@@ -1155,6 +1155,12 @@ button {
   cursor: progress;
 }
 
+.create-character-round-name {
+  margin: calc(-1 * var(--space-md)) 0 var(--space-lg);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 .create-round-card {
   width: 100%;
   max-width: 42rem;
@@ -1891,6 +1897,37 @@ button {
   font-weight: 600;
 }
 
+.round-characters-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.round-characters-header .round-members-title {
+  margin: 0;
+}
+
+.round-characters-create-link {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.round-characters-create-link:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.round-characters-create-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
 .round-members-state {
   margin: 0;
   color: var(--color-text-muted);
@@ -2256,6 +2293,7 @@ button {
   .round-detail-title-row,
   .character-detail-title-row,
   .character-round-summary,
+  .round-characters-header,
   .character-edit-actions,
   .edit-round-actions {
     align-items: stretch;
@@ -2264,6 +2302,10 @@ button {
 
   .character-round-summary .character-round-secondary-action {
     width: 100%;
+  }
+
+  .round-characters-create-link {
+    text-align: center;
   }
 
   .round-member-summary {

@@ -1,10 +1,15 @@
 import { Link } from 'react-router-dom'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
-import type { RoundMember, RoundMembershipRole } from '../types/round'
+import type {
+  RoundMember,
+  RoundMembershipRole,
+  RoundStatus,
+} from '../types/round'
 
 type RoundCharactersSectionProps = {
   roundId: string
+  roundStatus: RoundStatus
   membershipRole: RoundMembershipRole | null
   members: RoundMember[]
 }
@@ -18,6 +23,7 @@ function getTemplateName(templateKey: string, templateVersion: number) {
 
 function RoundCharactersSection({
   roundId,
+  roundStatus,
   membershipRole,
   members,
 }: RoundCharactersSectionProps) {
@@ -99,9 +105,19 @@ function RoundCharactersSection({
       aria-labelledby="round-characters-title"
       className="round-members-card round-characters-card"
     >
-      <h2 className="round-members-title" id="round-characters-title">
-        Charaktere
-      </h2>
+      <div className="round-characters-header">
+        <h2 className="round-members-title" id="round-characters-title">
+          Charaktere
+        </h2>
+        {isGameMaster && roundStatus !== 'archived' && (
+          <Link
+            className="round-characters-create-link"
+            to={`/app/rounds/${roundId}/characters/new`}
+          >
+            Vorbereiteten Charakter erstellen
+          </Link>
+        )}
+      </div>
       {content}
     </section>
   )

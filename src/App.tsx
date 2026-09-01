@@ -5,6 +5,7 @@ import AdminRoundDetailsPage from './pages/AdminRoundDetailsPage'
 import CharacterPage from './pages/CharacterPage'
 import CharactersPage from './pages/CharactersPage'
 import CreateCharacterPage from './pages/CreateCharacterPage'
+import CreatePreparedCharacterPage from './pages/CreatePreparedCharacterPage'
 import DashboardPage from './pages/DashboardPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import LandingPage from './pages/LandingPage'
@@ -40,6 +41,10 @@ function App() {
           <Route path="characters/:characterId" element={<CharacterPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="rounds" element={<RoundsPage />} />
+          <Route
+            path="rounds/:roundId/characters/new"
+            element={<CreatePreparedCharacterPage />}
+          />
           <Route path="rounds/:roundId" element={<RoundDetailsPage />} />
           <Route element={<RequireAdmin />}>
             <Route path="admin" element={<AdminPage />} />

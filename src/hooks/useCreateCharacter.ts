@@ -18,7 +18,15 @@ const sessionError =
 const unknownError =
   'Der Charakter konnte nicht erstellt werden. Bitte versuche es erneut.'
 
-export function useCreateCharacter() {
+type UseCreateCharacterOptions = {
+  roundId?: string | null
+  isPrepared?: boolean
+}
+
+export function useCreateCharacter({
+  roundId = null,
+  isPrepared = false,
+}: UseCreateCharacterOptions = {}) {
   const { session, user } = useAuth()
   const [state, setState] = useState<CreateCharacterState>(initialState)
   const isRequestInFlightRef = useRef(false)
@@ -70,8 +78,8 @@ export function useCreateCharacter() {
           p_name: normalizedName,
           p_template_key: template.key,
           p_template_version: template.version,
-          p_round_id: null,
-          p_is_prepared: false,
+          p_round_id: roundId,
+          p_is_prepared: isPrepared,
         })
 
         if (error || typeof data !== 'string') {
@@ -91,7 +99,7 @@ export function useCreateCharacter() {
         }))
       }
     },
-    [session, user],
+    [isPrepared, roundId, session, user],
   )
 
   return {

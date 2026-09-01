@@ -383,6 +383,7 @@ function RoundDetailsPage() {
           members={members}
           membershipRole={membershipRole}
           roundId={round.id}
+          roundStatus={round.status}
         />
       )}
       {round && (
