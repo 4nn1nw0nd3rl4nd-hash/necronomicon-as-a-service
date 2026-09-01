@@ -15,6 +15,21 @@ export type CharacterDetails = CharacterSummary & {
   deleted_at: string | null
 }
 
+export type DeletedCharacterSummary = Pick<
+  CharacterSummary,
+  | 'id'
+  | 'name'
+  | 'round_id'
+  | 'template_key'
+  | 'template_version'
+  | 'updated_at'
+> & {
+  deleted_at: string
+}
+
+export type DeletedRoundPreparedCharacterSummary = DeletedCharacterSummary &
+  Pick<CharacterSummary, 'owner_user_id'>
+
 export type RoundCharacterSummary = Pick<
   CharacterSummary,
   | 'id'

@@ -1,12 +1,18 @@
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
 import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCharacterKeepCopy'
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
+import { useRoundDeletedPreparedCharacters } from '../hooks/useRoundDeletedPreparedCharacters'
+import { useRestoreCharacter } from '../hooks/useRestoreCharacter'
 import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
 import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
+import {
+  formatCharacterDeletedAt,
+  getCharacterRecoveryStatus,
+} from '../lib/characterRecovery'
 import type { RoundCharacterSummary } from '../types/character'
 import type {
   RoundMember,
@@ -22,6 +28,8 @@ type RoundCharactersSectionProps = {
   currentUserId: string | undefined
   onMembershipsReload: () => void
 }
+
+type RoundCharacterSectionView = 'characters' | 'trash'
 
 function getTemplateName(templateKey: string, templateVersion: number) {
   return (
@@ -71,8 +79,22 @@ function RoundCharactersSection({
   currentUserId,
   onMembershipsReload,
 }: RoundCharactersSectionProps) {
+  const isGameMaster = membershipRole === 'game_master'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeView: RoundCharacterSectionView =
+    isGameMaster && searchParams.get('characterView') === 'trash'
+      ? 'trash'
+      : 'characters'
   const { characters, isLoading, error, reload } =
     useRoundCharacters(roundId)
+  const {
+    characters: deletedPreparedCharacters,
+    isLoading: isTrashLoading,
+    error: trashError,
+    reload: reloadTrash,
+  } = useRoundDeletedPreparedCharacters(
+    isGameMaster ? roundId : undefined,
+  )
   const {
     isSubmitting: isAssigningWithoutCopy,
     error: assignmentWithoutCopyError,
@@ -104,6 +126,12 @@ function RoundCharactersSection({
     softDeleteCharacter,
     resetState: resetPreparedDeleteState,
   } = useSoftDeleteCharacter()
+  const {
+    isSubmitting: isRestoringPreparedCharacter,
+    error: preparedRestoreError,
+    restoreCharacter,
+    resetState: resetPreparedRestoreState,
+  } = useRestoreCharacter()
   const [assignmentCharacterId, setAssignmentCharacterId] = useState<
     string | null
   >(null)
@@ -115,8 +143,9 @@ function RoundCharactersSection({
   >(null)
   const [preparedDeleteCharacterId, setPreparedDeleteCharacterId] =
     useState<string | null>(null)
+  const [preparedRestoreCharacterId, setPreparedRestoreCharacterId] =
+    useState<string | null>(null)
   const isAssignmentRequestInFlightRef = useRef(false)
-  const isGameMaster = membershipRole === 'game_master'
   const isAssignmentSubmitting =
     isAssigningWithoutCopy || isAssigningWithCopy
   const assignmentError =
@@ -125,6 +154,43 @@ function RoundCharactersSection({
   const resetAssignmentState = () => {
     resetAssignmentWithoutCopyState()
     resetAssignmentWithCopyState()
+  }
+
+  const isCharacterActionSubmitting =
+    isAssignmentSubmitting ||
+    isCopyingPreparedCharacter ||
+    isDeletingPreparedCharacter ||
+    isRestoringPreparedCharacter ||
+    isSettingActiveCharacter
+
+  const changeView = (view: RoundCharacterSectionView) => {
+    if (
+      isAssignmentRequestInFlightRef.current ||
+      isCharacterActionSubmitting
+    ) {
+      return
+    }
+
+    resetAssignmentState()
+    setAssignmentCharacterId(null)
+    setSelectedUserId('')
+    setIsConfirmingAssignment(false)
+    resetPreparedCopyState()
+    setPreparedCopyCharacterId(null)
+    resetPreparedDeleteState()
+    setPreparedDeleteCharacterId(null)
+    resetPreparedRestoreState()
+    setPreparedRestoreCharacterId(null)
+
+    const nextSearchParams = new URLSearchParams(searchParams)
+
+    if (view === 'trash') {
+      nextSearchParams.set('characterView', 'trash')
+    } else {
+      nextSearchParams.delete('characterView')
+    }
+
+    setSearchParams(nextSearchParams)
   }
 
   const handleSetActiveCharacter = async (characterId: string) => {
@@ -208,6 +274,35 @@ function RoundCharactersSection({
 
     if (wasDeleted) {
       setPreparedDeleteCharacterId(null)
+      reload()
+      reloadTrash()
+    }
+  }
+
+  const openPreparedRestore = (characterId: string) => {
+    if (isRestoringPreparedCharacter) {
+      return
+    }
+
+    resetPreparedRestoreState()
+    setPreparedRestoreCharacterId(characterId)
+  }
+
+  const cancelPreparedRestore = () => {
+    if (isRestoringPreparedCharacter) {
+      return
+    }
+
+    resetPreparedRestoreState()
+    setPreparedRestoreCharacterId(null)
+  }
+
+  const confirmPreparedRestore = async (characterId: string) => {
+    const wasRestored = await restoreCharacter(characterId)
+
+    if (wasRestored) {
+      setPreparedRestoreCharacterId(null)
+      reloadTrash()
       reload()
     }
   }
@@ -664,6 +759,138 @@ function RoundCharactersSection({
     )
   }
 
+  let trashContent
+
+  if (isTrashLoading) {
+    trashContent = (
+      <p className="round-members-state" role="status">
+        Papierkorb wird geladen...
+      </p>
+    )
+  } else if (trashError) {
+    trashContent = (
+      <div className="round-members-state" role="alert">
+        <p>{trashError}</p>
+        <button className="rounds-retry" onClick={reloadTrash} type="button">
+          Erneut versuchen
+        </button>
+      </div>
+    )
+  } else if (deletedPreparedCharacters.length === 0) {
+    trashContent = (
+      <p className="round-members-state">
+        Der Papierkorb für vorbereitete Charaktere ist leer.
+      </p>
+    )
+  } else {
+    trashContent = (
+      <ul className="round-characters-list">
+        {deletedPreparedCharacters.map((character) => {
+          const recoveryStatus = getCharacterRecoveryStatus(
+            character.deleted_at,
+          )
+          const isRestoreOpen =
+            preparedRestoreCharacterId === character.id
+          const canRestore =
+            !recoveryStatus.isExpired && roundStatus !== 'archived'
+
+          return (
+            <li className="round-character-item" key={character.id}>
+              <article className="round-character-card round-character-trash-card">
+                <h3>{character.name}</h3>
+                <p>
+                  {getTemplateName(
+                    character.template_key,
+                    character.template_version,
+                  )}
+                </p>
+                <span className="round-character-owner">Vorbereitet</span>
+                <dl className="round-character-trash-details">
+                  <div>
+                    <dt>Gelöscht am</dt>
+                    <dd>
+                      <time dateTime={character.deleted_at}>
+                        {formatCharacterDeletedAt(character.deleted_at)}
+                      </time>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Wiederherstellung</dt>
+                    <dd>{recoveryStatus.label}</dd>
+                  </div>
+                </dl>
+                {roundStatus === 'archived' &&
+                  !recoveryStatus.isExpired && (
+                    <p className="round-character-trash-note">
+                      In archivierten Runden können vorbereitete Charaktere
+                      nicht wiederhergestellt werden.
+                    </p>
+                  )}
+              </article>
+
+              {canRestore && !isRestoreOpen && (
+                <button
+                  aria-controls={`round-character-restore-${character.id}`}
+                  aria-expanded={isRestoreOpen}
+                  className="round-character-restore-trigger"
+                  disabled={isRestoringPreparedCharacter}
+                  onClick={() => openPreparedRestore(character.id)}
+                  type="button"
+                >
+                  Wiederherstellen
+                </button>
+              )}
+
+              {canRestore && isRestoreOpen && (
+                <div
+                  className="round-character-assignment-panel"
+                  id={`round-character-restore-${character.id}`}
+                >
+                  <p>
+                    Möchtest du diesen vorbereiteten Charakter
+                    wiederherstellen?
+                  </p>
+                  <p>
+                    Er erscheint anschließend wieder in der
+                    Charakterübersicht dieser Runde.
+                  </p>
+                  {preparedRestoreError && (
+                    <p className="profile-form-error" role="alert">
+                      {preparedRestoreError}
+                    </p>
+                  )}
+                  <div className="round-character-assignment-actions">
+                    <button
+                      className="round-character-restore-confirm"
+                      data-submitting={isRestoringPreparedCharacter}
+                      disabled={isRestoringPreparedCharacter}
+                      onClick={() =>
+                        void confirmPreparedRestore(character.id)
+                      }
+                      type="button"
+                    >
+                      {isRestoringPreparedCharacter
+                        ? 'Wird wiederhergestellt...'
+                        : 'Wiederherstellen'}
+                    </button>
+                    <button
+                      className="round-character-assignment-secondary"
+                      disabled={isRestoringPreparedCharacter}
+                      onClick={cancelPreparedRestore}
+                      type="button"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+
   return (
     <section
       aria-labelledby="round-characters-title"
@@ -673,7 +900,9 @@ function RoundCharactersSection({
         <h2 className="round-members-title" id="round-characters-title">
           Charaktere
         </h2>
-        {isGameMaster && roundStatus !== 'archived' && (
+        {activeView === 'characters' &&
+          isGameMaster &&
+          roundStatus !== 'archived' && (
           <Link
             className="round-characters-create-link"
             to={`/app/rounds/${roundId}/characters/new`}
@@ -682,7 +911,38 @@ function RoundCharactersSection({
           </Link>
         )}
       </div>
-      {!isLoading && !error && isGameMaster && members.length > 0 && (
+      {isGameMaster && (
+        <div
+          aria-label="Charakterbereiche der Runde"
+          className="round-character-section-switch"
+        >
+          <button
+            aria-pressed={activeView === 'characters'}
+            className="round-character-section-button"
+            data-active={activeView === 'characters'}
+            disabled={isCharacterActionSubmitting}
+            onClick={() => changeView('characters')}
+            type="button"
+          >
+            Charaktere
+          </button>
+          <button
+            aria-pressed={activeView === 'trash'}
+            className="round-character-section-button"
+            data-active={activeView === 'trash'}
+            disabled={isCharacterActionSubmitting}
+            onClick={() => changeView('trash')}
+            type="button"
+          >
+            Papierkorb
+          </button>
+        </div>
+      )}
+      {activeView === 'characters' &&
+        !isLoading &&
+        !error &&
+        isGameMaster &&
+        members.length > 0 && (
         <ul
           aria-label="Aktive Charaktere der Rundenmitglieder"
           className="round-character-active-overview"
@@ -695,7 +955,8 @@ function RoundCharactersSection({
           ))}
         </ul>
       )}
-      {!isLoading &&
+      {activeView === 'characters' &&
+        !isLoading &&
         !error &&
         !isGameMaster &&
         currentUserId &&
@@ -712,12 +973,12 @@ function RoundCharactersSection({
             )}
           </p>
         )}
-      {setActiveCharacterError && (
+      {activeView === 'characters' && setActiveCharacterError && (
         <p className="profile-form-error" role="alert">
           {setActiveCharacterError}
         </p>
       )}
-      {content}
+      {activeView === 'characters' ? content : trashContent}
     </section>
   )
 }

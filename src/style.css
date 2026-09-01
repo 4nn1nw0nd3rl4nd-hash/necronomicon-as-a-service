@@ -1137,6 +1137,100 @@ button {
   outline-offset: var(--space-xs);
 }
 
+.character-section-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: var(--space-lg) 0;
+}
+
+.character-section-button,
+.character-restore-trigger,
+.character-restore-confirm,
+.character-restore-cancel {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.character-section-button[data-active='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 650;
+}
+
+.character-section-button:hover,
+.character-restore-trigger:hover:not(:disabled),
+.character-restore-confirm:hover:not(:disabled),
+.character-restore-cancel:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.character-section-button:focus-visible,
+.character-restore-trigger:focus-visible,
+.character-restore-confirm:focus-visible,
+.character-restore-cancel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.character-trash-card {
+  display: grid;
+  gap: var(--space-lg);
+  min-width: 0;
+  height: 100%;
+}
+
+.character-trash-card .round-details {
+  margin: 0;
+}
+
+.character-restore-trigger {
+  justify-self: start;
+}
+
+.character-restore-confirmation {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-left: 2px solid var(--color-accent);
+  background-color: var(--color-surface-alt);
+}
+
+.character-restore-confirmation p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.character-restore-confirmation p:not([role='alert']) {
+  color: var(--color-text-muted);
+}
+
+.character-restore-confirmation p[role='alert'] {
+  color: #d9b8b0;
+}
+
+.character-restore-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.character-restore-trigger:disabled,
+.character-restore-confirm:disabled,
+.character-restore-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.character-restore-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
 .create-character-page {
   width: 100%;
   max-width: 42rem;
@@ -1998,6 +2092,43 @@ button {
   outline-offset: var(--space-xs);
 }
 
+.round-character-section-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.round-character-section-button {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.round-character-section-button[data-active='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 650;
+}
+
+.round-character-section-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.round-character-section-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-character-section-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .round-members-state {
   margin: 0;
   color: var(--color-text-muted);
@@ -2099,6 +2230,8 @@ button {
 .round-character-set-active,
 .round-character-assignment-primary,
 .round-character-delete-confirm,
+.round-character-restore-trigger,
+.round-character-restore-confirm,
 .round-character-assignment-secondary {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -2114,7 +2247,9 @@ button {
 .round-character-delete-trigger,
 .round-character-set-active,
 .round-character-assignment-primary,
-.round-character-delete-confirm {
+.round-character-delete-confirm,
+.round-character-restore-trigger,
+.round-character-restore-confirm {
   border-color: var(--color-accent);
 }
 
@@ -2124,6 +2259,8 @@ button {
 .round-character-set-active:hover:not(:disabled),
 .round-character-assignment-primary:hover:not(:disabled),
 .round-character-delete-confirm:hover:not(:disabled),
+.round-character-restore-trigger:hover:not(:disabled),
+.round-character-restore-confirm:hover:not(:disabled),
 .round-character-assignment-secondary:hover:not(:disabled) {
   background-color: var(--color-surface);
 }
@@ -2134,6 +2271,8 @@ button {
 .round-character-set-active:focus-visible,
 .round-character-assignment-primary:focus-visible,
 .round-character-delete-confirm:focus-visible,
+.round-character-restore-trigger:focus-visible,
+.round-character-restore-confirm:focus-visible,
 .round-character-assignment-secondary:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
@@ -2145,6 +2284,8 @@ button {
 .round-character-set-active:disabled,
 .round-character-assignment-primary:disabled,
 .round-character-delete-confirm:disabled,
+.round-character-restore-trigger:disabled,
+.round-character-restore-confirm:disabled,
 .round-character-assignment-secondary:disabled {
   cursor: not-allowed;
   opacity: 0.65;
@@ -2156,6 +2297,40 @@ button {
 
 .round-character-delete-confirm[data-submitting='true'] {
   cursor: progress;
+}
+
+.round-character-restore-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
+.round-character-trash-details {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.round-character-trash-details div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
+}
+
+.round-character-trash-details dt {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.round-character-trash-details dd {
+  margin: 0;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.round-character-trash-note {
+  line-height: 1.5;
 }
 
 .round-character-prepared-actions {
@@ -2541,6 +2716,9 @@ button {
   .round-detail-title-row,
   .character-detail-title-row,
   .character-detail-actions,
+  .character-section-switch,
+  .character-restore-actions,
+  .round-character-section-switch,
   .character-round-summary,
   .round-characters-header,
   .character-edit-actions,
@@ -2584,6 +2762,13 @@ button {
   .character-delete-trigger,
   .character-delete-confirm,
   .character-delete-cancel,
+  .character-section-button,
+  .character-restore-trigger,
+  .character-restore-confirm,
+  .character-restore-cancel,
+  .round-character-section-button,
+  .round-character-restore-trigger,
+  .round-character-restore-confirm,
   .character-edit-actions .auth-submit,
   .character-edit-cancel,
   .edit-round-actions .auth-submit,
