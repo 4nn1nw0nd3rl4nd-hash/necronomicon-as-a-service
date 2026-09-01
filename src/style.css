@@ -1966,6 +1966,18 @@ button {
   outline-offset: var(--space-xs);
 }
 
+.round-character-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.round-character-item .round-character-link {
+  height: auto;
+  flex: 1;
+}
+
 .round-character-card {
   display: grid;
   height: 100%;
@@ -1999,6 +2011,69 @@ button {
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+}
+
+.round-character-assign-trigger,
+.round-character-assignment-primary,
+.round-character-assignment-secondary {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.round-character-assign-trigger,
+.round-character-assignment-primary {
+  border-color: var(--color-accent);
+}
+
+.round-character-assign-trigger:hover:not(:disabled),
+.round-character-assignment-primary:hover:not(:disabled),
+.round-character-assignment-secondary:hover:not(:disabled) {
+  background-color: var(--color-surface);
+}
+
+.round-character-assign-trigger:focus-visible,
+.round-character-assignment-primary:focus-visible,
+.round-character-assignment-secondary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.round-character-assign-trigger:disabled,
+.round-character-assignment-primary:disabled,
+.round-character-assignment-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.round-character-assignment-panel {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-left: 2px solid var(--color-accent);
+  background-color: var(--color-surface-alt);
+}
+
+.round-character-assignment-panel p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.round-character-assignment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.round-character-assignment-primary[data-submitting='true'] {
+  cursor: progress;
 }
 
 .round-members-list {

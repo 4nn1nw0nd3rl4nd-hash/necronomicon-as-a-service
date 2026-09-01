@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { findCharacterTemplate } from '../characterTemplates'
+import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
 import type {
   RoundMember,
@@ -21,6 +23,10 @@ function getTemplateName(templateKey: string, templateVersion: number) {
   )
 }
 
+function getMemberName(member: RoundMember) {
+  return member.profile.display_name.trim() || 'Mitglied'
+}
+
 function RoundCharactersSection({
   roundId,
   roundStatus,
@@ -29,7 +35,59 @@ function RoundCharactersSection({
 }: RoundCharactersSectionProps) {
   const { characters, isLoading, error, reload } =
     useRoundCharacters(roundId)
+  const {
+    isSubmitting,
+    error: assignmentError,
+    assignPreparedCharacter,
+    resetState: resetAssignmentState,
+  } = useAssignPreparedCharacter()
+  const [assignmentCharacterId, setAssignmentCharacterId] = useState<
+    string | null
+  >(null)
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [isConfirmingAssignment, setIsConfirmingAssignment] =
+    useState(false)
   const isGameMaster = membershipRole === 'game_master'
+
+  const openAssignment = (characterId: string) => {
+    if (isSubmitting) {
+      return
+    }
+
+    resetAssignmentState()
+    setAssignmentCharacterId(characterId)
+    setSelectedUserId('')
+    setIsConfirmingAssignment(false)
+  }
+
+  const cancelAssignment = () => {
+    if (isSubmitting) {
+      return
+    }
+
+    resetAssignmentState()
+    setAssignmentCharacterId(null)
+    setSelectedUserId('')
+    setIsConfirmingAssignment(false)
+  }
+
+  const confirmAssignment = async () => {
+    if (!assignmentCharacterId || !selectedUserId) {
+      return
+    }
+
+    const wasAssigned = await assignPreparedCharacter(
+      assignmentCharacterId,
+      selectedUserId,
+    )
+
+    if (wasAssigned) {
+      setAssignmentCharacterId(null)
+      setSelectedUserId('')
+      setIsConfirmingAssignment(false)
+      reload()
+    }
+  }
 
   let content
 
@@ -65,9 +123,18 @@ function RoundCharactersSection({
                 ({ user_id }) => user_id === character.owner_user_id,
               )
             : null
+          const selectedMember = members.find(
+            ({ user_id }) => user_id === selectedUserId,
+          )
+          const isAssignmentOpen =
+            assignmentCharacterId === character.id
+          const canAssignCharacter =
+            isGameMaster &&
+            roundStatus !== 'archived' &&
+            character.owner_user_id === null
 
           return (
-            <li key={character.id}>
+            <li className="round-character-item" key={character.id}>
               <Link
                 aria-label={`Charakter ${character.name} öffnen`}
                 className="round-character-link"
@@ -93,6 +160,114 @@ function RoundCharactersSection({
                   )}
                 </article>
               </Link>
+              {canAssignCharacter && (
+                <button
+                  aria-controls={`round-character-assignment-${character.id}`}
+                  aria-expanded={isAssignmentOpen}
+                  className="round-character-assign-trigger"
+                  disabled={isSubmitting}
+                  onClick={() => openAssignment(character.id)}
+                  type="button"
+                >
+                  Spieler zuweisen
+                </button>
+              )}
+              {canAssignCharacter && isAssignmentOpen && (
+                <div
+                  className="round-character-assignment-panel"
+                  id={`round-character-assignment-${character.id}`}
+                >
+                  {!isConfirmingAssignment ? (
+                    <>
+                      {members.length > 0 ? (
+                        <label className="auth-field">
+                          <span>Spieler auswählen</span>
+                          <select
+                            onChange={(event) => {
+                              setSelectedUserId(event.target.value)
+                              resetAssignmentState()
+                            }}
+                            value={selectedUserId}
+                          >
+                            <option value="">Keine Auswahl</option>
+                            {members.map((member) => (
+                              <option
+                                key={member.user_id}
+                                value={member.user_id}
+                              >
+                                {getMemberName(member)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <p>Keine Mitglieder verfügbar.</p>
+                      )}
+                      <div className="round-character-assignment-actions">
+                        {members.length > 0 && (
+                          <button
+                            className="round-character-assignment-primary"
+                            disabled={!selectedUserId}
+                            onClick={() => setIsConfirmingAssignment(true)}
+                            type="button"
+                          >
+                            Weiter
+                          </button>
+                        )}
+                        <button
+                          className="round-character-assignment-secondary"
+                          onClick={cancelAssignment}
+                          type="button"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        {`Möchtest du „${character.name}“ wirklich „${
+                          selectedMember
+                            ? getMemberName(selectedMember)
+                            : 'Mitglied'
+                        }“ zuweisen?`}
+                      </p>
+                      <p>
+                        Nach der Zuweisung gehört der Charakter dauerhaft
+                        diesem Spieler. Du kannst ihn als Spielleitung dieser
+                        Runde weiterhin ansehen und bearbeiten, aber nicht mehr
+                        löschen, kopieren oder einem anderen Spieler zuweisen.
+                      </p>
+                      {assignmentError && (
+                        <p className="profile-form-error" role="alert">
+                          {assignmentError}
+                        </p>
+                      )}
+                      <div className="round-character-assignment-actions">
+                        <button
+                          className="round-character-assignment-primary"
+                          data-submitting={isSubmitting}
+                          disabled={isSubmitting || !selectedMember}
+                          onClick={() => void confirmAssignment()}
+                          type="button"
+                        >
+                          {isSubmitting
+                            ? 'Wird zugewiesen...'
+                            : 'Dauerhaft zuweisen'}
+                        </button>
+                        <button
+                          className="round-character-assignment-secondary"
+                          disabled={isSubmitting}
+                          onClick={cancelAssignment}
+                          type="button"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </li>
           )
         })}
