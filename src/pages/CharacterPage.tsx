@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import CharacterRoundAssignment from '../components/CharacterRoundAssignment'
 import { CharacterSheetRenderer } from '../components/CharacterSheetRenderer'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useCharacter } from '../hooks/useCharacter'
+import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useSetCharacterCheck } from '../hooks/useSetCharacterCheck'
 import { useUpdateCharacter } from '../hooks/useUpdateCharacter'
 
@@ -53,6 +59,7 @@ function getReturnLink(locationState: unknown) {
 function CharacterPage() {
   const { characterId } = useParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const returnLink = getReturnLink(location.state)
   const { user } = useAuth()
   const {
@@ -75,12 +82,20 @@ function CharacterPage() {
     updateCharacter,
     resetState: resetUpdateState,
   } = useUpdateCharacter()
+  const {
+    isSubmitting: isCopying,
+    error: copyError,
+    copyCharacter,
+    resetState: resetCopyState,
+  } = useCopyCharacter()
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(
     null,
   )
   const [draftName, setDraftName] = useState('')
   const [draftData, setDraftData] = useState<Record<string, unknown>>({})
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [isCopyConfirmationOpen, setIsCopyConfirmationOpen] =
+    useState(false)
 
   const isEditing = editingCharacterId === character?.id
 
@@ -90,15 +105,52 @@ function CharacterPage() {
   }
 
   const startEditing = () => {
-    if (!character || hasPendingCheckRequests) {
+    if (!character || hasPendingCheckRequests || isCopying) {
       return
     }
 
+    setIsCopyConfirmationOpen(false)
+    resetCopyState()
     setDraftName(character.name)
     setDraftData({ ...character.data })
     resetEditMessages()
     resetCheckState()
     setEditingCharacterId(character.id)
+  }
+
+  const openCopyConfirmation = () => {
+    if (isCopying) {
+      return
+    }
+
+    resetCopyState()
+    setIsCopyConfirmationOpen(true)
+  }
+
+  const cancelCopyConfirmation = () => {
+    if (isCopying) {
+      return
+    }
+
+    resetCopyState()
+    setIsCopyConfirmationOpen(false)
+  }
+
+  const confirmCopy = async () => {
+    if (!character) {
+      return
+    }
+
+    const newCharacterId = await copyCharacter(character.id)
+
+    if (newCharacterId) {
+      setIsCopyConfirmationOpen(false)
+      navigate(`/app/characters/${newCharacterId}`, {
+        state: {
+          characterReturnContext: { source: 'characters' },
+        },
+      })
+    }
   }
 
   const cancelEditing = () => {
@@ -203,21 +255,38 @@ function CharacterPage() {
       character.template_key,
       character.template_version,
     )
+    const isCharacterOwner = character.owner_user_id === user?.id
 
     content = (
       <article className="character-detail">
         <header className="character-detail-header">
           <div className="character-detail-title-row">
             <h1>{character.name}</h1>
-            {template && !isEditing && (
-              <button
-                className="character-edit-button"
-                disabled={hasPendingCheckRequests}
-                onClick={startEditing}
-                type="button"
-              >
-                Bearbeiten
-              </button>
+            {!isEditing && (template || isCharacterOwner) && (
+              <div className="character-detail-actions">
+                {template && (
+                  <button
+                    className="character-edit-button"
+                    disabled={hasPendingCheckRequests || isCopying}
+                    onClick={startEditing}
+                    type="button"
+                  >
+                    Bearbeiten
+                  </button>
+                )}
+                {isCharacterOwner && (
+                  <button
+                    aria-controls="character-copy-confirmation"
+                    aria-expanded={isCopyConfirmationOpen}
+                    className="character-copy-trigger"
+                    disabled={isCopying}
+                    onClick={openCopyConfirmation}
+                    type="button"
+                  >
+                    Charakter kopieren
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <p className="character-detail-template">
@@ -225,6 +294,44 @@ function CharacterPage() {
             <span>Version {character.template_version}</span>
           </p>
         </header>
+
+        {isCharacterOwner && isCopyConfirmationOpen && !isEditing && (
+          <section
+            aria-labelledby="character-copy-title"
+            className="character-copy-confirmation"
+            id="character-copy-confirmation"
+          >
+            <h2 id="character-copy-title">Charakter kopieren</h2>
+            <p>
+              Eine unabhängige Kopie dieses Charakters wird erstellt. Die
+              Kopie ist zunächst keiner Runde zugeordnet.
+            </p>
+            {copyError && (
+              <p className="profile-form-error" role="alert">
+                {copyError}
+              </p>
+            )}
+            <div className="character-copy-actions">
+              <button
+                className="character-copy-confirm"
+                data-submitting={isCopying}
+                disabled={isCopying}
+                onClick={() => void confirmCopy()}
+                type="button"
+              >
+                {isCopying ? 'Wird kopiert...' : 'Kopieren'}
+              </button>
+              <button
+                className="character-copy-cancel"
+                disabled={isCopying}
+                onClick={cancelCopyConfirmation}
+                type="button"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </section>
+        )}
 
         {user &&
           character.owner_user_id === user.id &&

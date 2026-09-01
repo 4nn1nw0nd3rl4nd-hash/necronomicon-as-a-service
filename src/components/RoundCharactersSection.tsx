@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
 import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCharacterKeepCopy'
+import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
 import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
 import type { RoundCharacterSummary } from '../types/character'
@@ -90,12 +91,21 @@ function RoundCharactersSection({
     setActiveCharacter,
     resetState: resetSetActiveCharacterState,
   } = useSetActiveCharacter()
+  const {
+    isSubmitting: isCopyingPreparedCharacter,
+    error: preparedCopyError,
+    copyCharacter,
+    resetState: resetPreparedCopyState,
+  } = useCopyCharacter()
   const [assignmentCharacterId, setAssignmentCharacterId] = useState<
     string | null
   >(null)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [isConfirmingAssignment, setIsConfirmingAssignment] =
     useState(false)
+  const [preparedCopyCharacterId, setPreparedCopyCharacterId] = useState<
+    string | null
+  >(null)
   const isAssignmentRequestInFlightRef = useRef(false)
   const isGameMaster = membershipRole === 'game_master'
   const isAssignmentSubmitting =
@@ -120,15 +130,49 @@ function RoundCharactersSection({
   const openAssignment = (characterId: string) => {
     if (
       isAssignmentRequestInFlightRef.current ||
-      isAssignmentSubmitting
+      isAssignmentSubmitting ||
+      isCopyingPreparedCharacter
     ) {
       return
     }
 
+    resetPreparedCopyState()
+    setPreparedCopyCharacterId(null)
     resetAssignmentState()
     setAssignmentCharacterId(characterId)
     setSelectedUserId('')
     setIsConfirmingAssignment(false)
+  }
+
+  const openPreparedCopy = (characterId: string) => {
+    if (isAssignmentSubmitting || isCopyingPreparedCharacter) {
+      return
+    }
+
+    resetAssignmentState()
+    setAssignmentCharacterId(null)
+    setSelectedUserId('')
+    setIsConfirmingAssignment(false)
+    resetPreparedCopyState()
+    setPreparedCopyCharacterId(characterId)
+  }
+
+  const cancelPreparedCopy = () => {
+    if (isCopyingPreparedCharacter) {
+      return
+    }
+
+    resetPreparedCopyState()
+    setPreparedCopyCharacterId(null)
+  }
+
+  const confirmPreparedCopy = async (characterId: string) => {
+    const newCharacterId = await copyCharacter(characterId)
+
+    if (newCharacterId) {
+      setPreparedCopyCharacterId(null)
+      reload()
+    }
   }
 
   const cancelAssignment = () => {
@@ -246,6 +290,9 @@ function RoundCharactersSection({
             isGameMaster &&
             roundStatus !== 'archived' &&
             character.owner_user_id === null
+          const canCopyPreparedCharacter = canAssignCharacter
+          const isPreparedCopyOpen =
+            preparedCopyCharacterId === character.id
 
           return (
             <li className="round-character-item" key={character.id}>
@@ -303,12 +350,67 @@ function RoundCharactersSection({
                   aria-controls={`round-character-assignment-${character.id}`}
                   aria-expanded={isAssignmentOpen}
                   className="round-character-assign-trigger"
-                  disabled={isAssignmentSubmitting}
+                  disabled={
+                    isAssignmentSubmitting || isCopyingPreparedCharacter
+                  }
                   onClick={() => openAssignment(character.id)}
                   type="button"
                 >
                   Spieler zuweisen
                 </button>
+              )}
+              {canCopyPreparedCharacter && (
+                <button
+                  aria-controls={`round-character-copy-${character.id}`}
+                  aria-expanded={isPreparedCopyOpen}
+                  className="round-character-copy-trigger"
+                  disabled={
+                    isAssignmentSubmitting || isCopyingPreparedCharacter
+                  }
+                  onClick={() => openPreparedCopy(character.id)}
+                  type="button"
+                >
+                  Kopieren
+                </button>
+              )}
+              {canCopyPreparedCharacter && isPreparedCopyOpen && (
+                <div
+                  className="round-character-assignment-panel"
+                  id={`round-character-copy-${character.id}`}
+                >
+                  <p>
+                    Eine unabhängige vorbereitete Kopie dieses Charakters wird
+                    erstellt und bleibt dieser Runde zugeordnet.
+                  </p>
+                  {preparedCopyError && (
+                    <p className="profile-form-error" role="alert">
+                      {preparedCopyError}
+                    </p>
+                  )}
+                  <div className="round-character-assignment-actions">
+                    <button
+                      className="round-character-assignment-primary"
+                      data-submitting={isCopyingPreparedCharacter}
+                      disabled={isCopyingPreparedCharacter}
+                      onClick={() =>
+                        void confirmPreparedCopy(character.id)
+                      }
+                      type="button"
+                    >
+                      {isCopyingPreparedCharacter
+                        ? 'Wird kopiert...'
+                        : 'Kopieren'}
+                    </button>
+                    <button
+                      className="round-character-assignment-secondary"
+                      disabled={isCopyingPreparedCharacter}
+                      onClick={cancelPreparedCopy}
+                      type="button"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
               )}
               {canAssignCharacter && isAssignmentOpen && (
                 <div

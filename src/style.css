@@ -1425,6 +1425,13 @@ button {
   gap: var(--space-lg);
 }
 
+.character-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
 .character-detail-header h1 {
   margin: 0;
   font-size: 2rem;
@@ -1632,6 +1639,9 @@ button {
 }
 
 .character-edit-button,
+.character-copy-trigger,
+.character-copy-confirm,
+.character-copy-cancel,
 .character-edit-cancel {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -1643,14 +1653,52 @@ button {
 }
 
 .character-edit-button:hover,
+.character-copy-trigger:hover:not(:disabled),
+.character-copy-confirm:hover:not(:disabled),
+.character-copy-cancel:hover:not(:disabled),
 .character-edit-cancel:hover:not(:disabled) {
   border-color: var(--color-accent);
 }
 
 .character-edit-button:focus-visible,
+.character-copy-trigger:focus-visible,
+.character-copy-confirm:focus-visible,
+.character-copy-cancel:focus-visible,
 .character-edit-cancel:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
+}
+
+.character-copy-confirmation {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-left: 2px solid var(--color-accent);
+  background-color: var(--color-surface);
+}
+
+.character-copy-confirmation h2,
+.character-copy-confirmation p {
+  margin: 0;
+}
+
+.character-copy-confirmation h2 {
+  font-size: 1rem;
+}
+
+.character-copy-confirmation p {
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.character-copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.character-copy-confirm[data-submitting='true'] {
+  cursor: progress;
 }
 
 .character-edit-form {
@@ -1727,6 +1775,9 @@ button {
 
 .character-edit-actions .auth-submit:disabled,
 .character-edit-button:disabled,
+.character-copy-trigger:disabled,
+.character-copy-confirm:disabled,
+.character-copy-cancel:disabled,
 .character-edit-cancel:disabled {
   cursor: not-allowed;
   opacity: 0.65;
@@ -2024,6 +2075,7 @@ button {
 }
 
 .round-character-assign-trigger,
+.round-character-copy-trigger,
 .round-character-set-active,
 .round-character-assignment-primary,
 .round-character-assignment-secondary {
@@ -2037,12 +2089,14 @@ button {
 }
 
 .round-character-assign-trigger,
+.round-character-copy-trigger,
 .round-character-set-active,
 .round-character-assignment-primary {
   border-color: var(--color-accent);
 }
 
 .round-character-assign-trigger:hover:not(:disabled),
+.round-character-copy-trigger:hover:not(:disabled),
 .round-character-set-active:hover:not(:disabled),
 .round-character-assignment-primary:hover:not(:disabled),
 .round-character-assignment-secondary:hover:not(:disabled) {
@@ -2050,6 +2104,7 @@ button {
 }
 
 .round-character-assign-trigger:focus-visible,
+.round-character-copy-trigger:focus-visible,
 .round-character-set-active:focus-visible,
 .round-character-assignment-primary:focus-visible,
 .round-character-assignment-secondary:focus-visible {
@@ -2058,6 +2113,7 @@ button {
 }
 
 .round-character-assign-trigger:disabled,
+.round-character-copy-trigger:disabled,
 .round-character-set-active:disabled,
 .round-character-assignment-primary:disabled,
 .round-character-assignment-secondary:disabled {
@@ -2442,6 +2498,7 @@ button {
 
   .round-detail-title-row,
   .character-detail-title-row,
+  .character-detail-actions,
   .character-round-summary,
   .round-characters-header,
   .character-edit-actions,
@@ -2479,6 +2536,9 @@ button {
 
   .round-edit-button,
   .character-edit-button,
+  .character-copy-trigger,
+  .character-copy-confirm,
+  .character-copy-cancel,
   .character-edit-actions .auth-submit,
   .character-edit-cancel,
   .edit-round-actions .auth-submit,
