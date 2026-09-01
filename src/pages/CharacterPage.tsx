@@ -13,6 +13,7 @@ import { findCharacterTemplate } from '../characterTemplates'
 import { useCharacter } from '../hooks/useCharacter'
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useSetCharacterCheck } from '../hooks/useSetCharacterCheck'
+import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
 import { useUpdateCharacter } from '../hooks/useUpdateCharacter'
 
 const uuidPattern =
@@ -88,6 +89,12 @@ function CharacterPage() {
     copyCharacter,
     resetState: resetCopyState,
   } = useCopyCharacter()
+  const {
+    isSubmitting: isDeleting,
+    error: deleteError,
+    softDeleteCharacter,
+    resetState: resetDeleteState,
+  } = useSoftDeleteCharacter()
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(
     null,
   )
@@ -95,6 +102,8 @@ function CharacterPage() {
   const [draftData, setDraftData] = useState<Record<string, unknown>>({})
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isCopyConfirmationOpen, setIsCopyConfirmationOpen] =
+    useState(false)
+  const [isDeleteConfirmationOpen, setIsDeleteConfirmationOpen] =
     useState(false)
 
   const isEditing = editingCharacterId === character?.id
@@ -105,12 +114,19 @@ function CharacterPage() {
   }
 
   const startEditing = () => {
-    if (!character || hasPendingCheckRequests || isCopying) {
+    if (
+      !character ||
+      hasPendingCheckRequests ||
+      isCopying ||
+      isDeleting
+    ) {
       return
     }
 
     setIsCopyConfirmationOpen(false)
+    setIsDeleteConfirmationOpen(false)
     resetCopyState()
+    resetDeleteState()
     setDraftName(character.name)
     setDraftData({ ...character.data })
     resetEditMessages()
@@ -119,12 +135,47 @@ function CharacterPage() {
   }
 
   const openCopyConfirmation = () => {
-    if (isCopying) {
+    if (isCopying || isDeleting) {
+      return
+    }
+
+    resetDeleteState()
+    setIsDeleteConfirmationOpen(false)
+    resetCopyState()
+    setIsCopyConfirmationOpen(true)
+  }
+
+  const openDeleteConfirmation = () => {
+    if (isCopying || isDeleting) {
       return
     }
 
     resetCopyState()
-    setIsCopyConfirmationOpen(true)
+    setIsCopyConfirmationOpen(false)
+    resetDeleteState()
+    setIsDeleteConfirmationOpen(true)
+  }
+
+  const cancelDeleteConfirmation = () => {
+    if (isDeleting) {
+      return
+    }
+
+    resetDeleteState()
+    setIsDeleteConfirmationOpen(false)
+  }
+
+  const confirmDelete = async () => {
+    if (!character) {
+      return
+    }
+
+    const wasDeleted = await softDeleteCharacter(character.id)
+
+    if (wasDeleted) {
+      setIsDeleteConfirmationOpen(false)
+      navigate('/app/characters')
+    }
   }
 
   const cancelCopyConfirmation = () => {
@@ -267,7 +318,9 @@ function CharacterPage() {
                 {template && (
                   <button
                     className="character-edit-button"
-                    disabled={hasPendingCheckRequests || isCopying}
+                    disabled={
+                      hasPendingCheckRequests || isCopying || isDeleting
+                    }
                     onClick={startEditing}
                     type="button"
                   >
@@ -279,11 +332,23 @@ function CharacterPage() {
                     aria-controls="character-copy-confirmation"
                     aria-expanded={isCopyConfirmationOpen}
                     className="character-copy-trigger"
-                    disabled={isCopying}
+                    disabled={isCopying || isDeleting}
                     onClick={openCopyConfirmation}
                     type="button"
                   >
                     Charakter kopieren
+                  </button>
+                )}
+                {isCharacterOwner && (
+                  <button
+                    aria-controls="character-delete-confirmation"
+                    aria-expanded={isDeleteConfirmationOpen}
+                    className="character-delete-trigger"
+                    disabled={isCopying || isDeleting}
+                    onClick={openDeleteConfirmation}
+                    type="button"
+                  >
+                    In den Papierkorb
                   </button>
                 )}
               </div>
@@ -325,6 +390,47 @@ function CharacterPage() {
                 className="character-copy-cancel"
                 disabled={isCopying}
                 onClick={cancelCopyConfirmation}
+                type="button"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </section>
+        )}
+
+        {isCharacterOwner && isDeleteConfirmationOpen && !isEditing && (
+          <section
+            aria-labelledby="character-delete-title"
+            className="character-delete-confirmation"
+            id="character-delete-confirmation"
+          >
+            <h2 id="character-delete-title">In den Papierkorb</h2>
+            <p>
+              Möchtest du diesen Charakter in den Papierkorb verschieben?
+            </p>
+            <p>
+              Er bleibt 14 Tage wiederherstellbar und wird nicht sofort
+              endgültig gelöscht.
+            </p>
+            {deleteError && (
+              <p className="profile-form-error" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="character-delete-actions">
+              <button
+                className="character-delete-confirm"
+                data-submitting={isDeleting}
+                disabled={isDeleting}
+                onClick={() => void confirmDelete()}
+                type="button"
+              >
+                {isDeleting ? 'Wird verschoben...' : 'In den Papierkorb'}
+              </button>
+              <button
+                className="character-delete-cancel"
+                disabled={isDeleting}
+                onClick={cancelDeleteConfirmation}
                 type="button"
               >
                 Abbrechen

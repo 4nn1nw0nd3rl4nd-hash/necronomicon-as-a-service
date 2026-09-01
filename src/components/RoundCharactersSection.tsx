@@ -6,6 +6,7 @@ import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCh
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
 import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
+import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
 import type { RoundCharacterSummary } from '../types/character'
 import type {
   RoundMember,
@@ -97,6 +98,12 @@ function RoundCharactersSection({
     copyCharacter,
     resetState: resetPreparedCopyState,
   } = useCopyCharacter()
+  const {
+    isSubmitting: isDeletingPreparedCharacter,
+    error: preparedDeleteError,
+    softDeleteCharacter,
+    resetState: resetPreparedDeleteState,
+  } = useSoftDeleteCharacter()
   const [assignmentCharacterId, setAssignmentCharacterId] = useState<
     string | null
   >(null)
@@ -106,6 +113,8 @@ function RoundCharactersSection({
   const [preparedCopyCharacterId, setPreparedCopyCharacterId] = useState<
     string | null
   >(null)
+  const [preparedDeleteCharacterId, setPreparedDeleteCharacterId] =
+    useState<string | null>(null)
   const isAssignmentRequestInFlightRef = useRef(false)
   const isGameMaster = membershipRole === 'game_master'
   const isAssignmentSubmitting =
@@ -131,13 +140,16 @@ function RoundCharactersSection({
     if (
       isAssignmentRequestInFlightRef.current ||
       isAssignmentSubmitting ||
-      isCopyingPreparedCharacter
+      isCopyingPreparedCharacter ||
+      isDeletingPreparedCharacter
     ) {
       return
     }
 
     resetPreparedCopyState()
     setPreparedCopyCharacterId(null)
+    resetPreparedDeleteState()
+    setPreparedDeleteCharacterId(null)
     resetAssignmentState()
     setAssignmentCharacterId(characterId)
     setSelectedUserId('')
@@ -145,7 +157,30 @@ function RoundCharactersSection({
   }
 
   const openPreparedCopy = (characterId: string) => {
-    if (isAssignmentSubmitting || isCopyingPreparedCharacter) {
+    if (
+      isAssignmentSubmitting ||
+      isCopyingPreparedCharacter ||
+      isDeletingPreparedCharacter
+    ) {
+      return
+    }
+
+    resetAssignmentState()
+    setAssignmentCharacterId(null)
+    setSelectedUserId('')
+    setIsConfirmingAssignment(false)
+    resetPreparedDeleteState()
+    setPreparedDeleteCharacterId(null)
+    resetPreparedCopyState()
+    setPreparedCopyCharacterId(characterId)
+  }
+
+  const openPreparedDelete = (characterId: string) => {
+    if (
+      isAssignmentSubmitting ||
+      isCopyingPreparedCharacter ||
+      isDeletingPreparedCharacter
+    ) {
       return
     }
 
@@ -154,7 +189,27 @@ function RoundCharactersSection({
     setSelectedUserId('')
     setIsConfirmingAssignment(false)
     resetPreparedCopyState()
-    setPreparedCopyCharacterId(characterId)
+    setPreparedCopyCharacterId(null)
+    resetPreparedDeleteState()
+    setPreparedDeleteCharacterId(characterId)
+  }
+
+  const cancelPreparedDelete = () => {
+    if (isDeletingPreparedCharacter) {
+      return
+    }
+
+    resetPreparedDeleteState()
+    setPreparedDeleteCharacterId(null)
+  }
+
+  const confirmPreparedDelete = async (characterId: string) => {
+    const wasDeleted = await softDeleteCharacter(characterId)
+
+    if (wasDeleted) {
+      setPreparedDeleteCharacterId(null)
+      reload()
+    }
   }
 
   const cancelPreparedCopy = () => {
@@ -291,8 +346,15 @@ function RoundCharactersSection({
             roundStatus !== 'archived' &&
             character.owner_user_id === null
           const canCopyPreparedCharacter = canAssignCharacter
+          const canDeletePreparedCharacter = canAssignCharacter
           const isPreparedCopyOpen =
             preparedCopyCharacterId === character.id
+          const isPreparedDeleteOpen =
+            preparedDeleteCharacterId === character.id
+          const isPreparedActionSubmitting =
+            isAssignmentSubmitting ||
+            isCopyingPreparedCharacter ||
+            isDeletingPreparedCharacter
 
           return (
             <li className="round-character-item" key={character.id}>
@@ -346,32 +408,38 @@ function RoundCharactersSection({
                 </button>
               )}
               {canAssignCharacter && (
-                <button
-                  aria-controls={`round-character-assignment-${character.id}`}
-                  aria-expanded={isAssignmentOpen}
-                  className="round-character-assign-trigger"
-                  disabled={
-                    isAssignmentSubmitting || isCopyingPreparedCharacter
-                  }
-                  onClick={() => openAssignment(character.id)}
-                  type="button"
-                >
-                  Spieler zuweisen
-                </button>
-              )}
-              {canCopyPreparedCharacter && (
-                <button
-                  aria-controls={`round-character-copy-${character.id}`}
-                  aria-expanded={isPreparedCopyOpen}
-                  className="round-character-copy-trigger"
-                  disabled={
-                    isAssignmentSubmitting || isCopyingPreparedCharacter
-                  }
-                  onClick={() => openPreparedCopy(character.id)}
-                  type="button"
-                >
-                  Kopieren
-                </button>
+                <div className="round-character-prepared-actions">
+                  <button
+                    aria-controls={`round-character-assignment-${character.id}`}
+                    aria-expanded={isAssignmentOpen}
+                    className="round-character-assign-trigger"
+                    disabled={isPreparedActionSubmitting}
+                    onClick={() => openAssignment(character.id)}
+                    type="button"
+                  >
+                    Spieler zuweisen
+                  </button>
+                  <button
+                    aria-controls={`round-character-copy-${character.id}`}
+                    aria-expanded={isPreparedCopyOpen}
+                    className="round-character-copy-trigger"
+                    disabled={isPreparedActionSubmitting}
+                    onClick={() => openPreparedCopy(character.id)}
+                    type="button"
+                  >
+                    Kopieren
+                  </button>
+                  <button
+                    aria-controls={`round-character-delete-${character.id}`}
+                    aria-expanded={isPreparedDeleteOpen}
+                    className="round-character-delete-trigger"
+                    disabled={isPreparedActionSubmitting}
+                    onClick={() => openPreparedDelete(character.id)}
+                    type="button"
+                  >
+                    In den Papierkorb
+                  </button>
+                </div>
               )}
               {canCopyPreparedCharacter && isPreparedCopyOpen && (
                 <div
@@ -405,6 +473,46 @@ function RoundCharactersSection({
                       className="round-character-assignment-secondary"
                       disabled={isCopyingPreparedCharacter}
                       onClick={cancelPreparedCopy}
+                      type="button"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              )}
+              {canDeletePreparedCharacter && isPreparedDeleteOpen && (
+                <div
+                  className="round-character-assignment-panel"
+                  id={`round-character-delete-${character.id}`}
+                >
+                  <p>
+                    Möchtest du diesen vorbereiteten Charakter in den
+                    Papierkorb verschieben?
+                  </p>
+                  <p>Er bleibt 14 Tage wiederherstellbar.</p>
+                  {preparedDeleteError && (
+                    <p className="profile-form-error" role="alert">
+                      {preparedDeleteError}
+                    </p>
+                  )}
+                  <div className="round-character-assignment-actions">
+                    <button
+                      className="round-character-delete-confirm"
+                      data-submitting={isDeletingPreparedCharacter}
+                      disabled={isDeletingPreparedCharacter}
+                      onClick={() =>
+                        void confirmPreparedDelete(character.id)
+                      }
+                      type="button"
+                    >
+                      {isDeletingPreparedCharacter
+                        ? 'Wird verschoben...'
+                        : 'In den Papierkorb'}
+                    </button>
+                    <button
+                      className="round-character-assignment-secondary"
+                      disabled={isDeletingPreparedCharacter}
+                      onClick={cancelPreparedDelete}
                       type="button"
                     >
                       Abbrechen

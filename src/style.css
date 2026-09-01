@@ -1642,6 +1642,9 @@ button {
 .character-copy-trigger,
 .character-copy-confirm,
 .character-copy-cancel,
+.character-delete-trigger,
+.character-delete-confirm,
+.character-delete-cancel,
 .character-edit-cancel {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -1656,6 +1659,9 @@ button {
 .character-copy-trigger:hover:not(:disabled),
 .character-copy-confirm:hover:not(:disabled),
 .character-copy-cancel:hover:not(:disabled),
+.character-delete-trigger:hover:not(:disabled),
+.character-delete-confirm:hover:not(:disabled),
+.character-delete-cancel:hover:not(:disabled),
 .character-edit-cancel:hover:not(:disabled) {
   border-color: var(--color-accent);
 }
@@ -1664,12 +1670,16 @@ button {
 .character-copy-trigger:focus-visible,
 .character-copy-confirm:focus-visible,
 .character-copy-cancel:focus-visible,
+.character-delete-trigger:focus-visible,
+.character-delete-confirm:focus-visible,
+.character-delete-cancel:focus-visible,
 .character-edit-cancel:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
 }
 
-.character-copy-confirmation {
+.character-copy-confirmation,
+.character-delete-confirmation {
   display: grid;
   gap: var(--space-md);
   padding: var(--space-lg);
@@ -1678,26 +1688,32 @@ button {
 }
 
 .character-copy-confirmation h2,
-.character-copy-confirmation p {
+.character-copy-confirmation p,
+.character-delete-confirmation h2,
+.character-delete-confirmation p {
   margin: 0;
 }
 
-.character-copy-confirmation h2 {
+.character-copy-confirmation h2,
+.character-delete-confirmation h2 {
   font-size: 1rem;
 }
 
-.character-copy-confirmation p {
+.character-copy-confirmation p,
+.character-delete-confirmation p {
   color: var(--color-text-muted);
   line-height: 1.5;
 }
 
-.character-copy-actions {
+.character-copy-actions,
+.character-delete-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
 }
 
-.character-copy-confirm[data-submitting='true'] {
+.character-copy-confirm[data-submitting='true'],
+.character-delete-confirm[data-submitting='true'] {
   cursor: progress;
 }
 
@@ -1778,6 +1794,9 @@ button {
 .character-copy-trigger:disabled,
 .character-copy-confirm:disabled,
 .character-copy-cancel:disabled,
+.character-delete-trigger:disabled,
+.character-delete-confirm:disabled,
+.character-delete-cancel:disabled,
 .character-edit-cancel:disabled {
   cursor: not-allowed;
   opacity: 0.65;
@@ -2076,8 +2095,10 @@ button {
 
 .round-character-assign-trigger,
 .round-character-copy-trigger,
+.round-character-delete-trigger,
 .round-character-set-active,
 .round-character-assignment-primary,
+.round-character-delete-confirm,
 .round-character-assignment-secondary {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -2090,23 +2111,29 @@ button {
 
 .round-character-assign-trigger,
 .round-character-copy-trigger,
+.round-character-delete-trigger,
 .round-character-set-active,
-.round-character-assignment-primary {
+.round-character-assignment-primary,
+.round-character-delete-confirm {
   border-color: var(--color-accent);
 }
 
 .round-character-assign-trigger:hover:not(:disabled),
 .round-character-copy-trigger:hover:not(:disabled),
+.round-character-delete-trigger:hover:not(:disabled),
 .round-character-set-active:hover:not(:disabled),
 .round-character-assignment-primary:hover:not(:disabled),
+.round-character-delete-confirm:hover:not(:disabled),
 .round-character-assignment-secondary:hover:not(:disabled) {
   background-color: var(--color-surface);
 }
 
 .round-character-assign-trigger:focus-visible,
 .round-character-copy-trigger:focus-visible,
+.round-character-delete-trigger:focus-visible,
 .round-character-set-active:focus-visible,
 .round-character-assignment-primary:focus-visible,
+.round-character-delete-confirm:focus-visible,
 .round-character-assignment-secondary:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
@@ -2114,8 +2141,10 @@ button {
 
 .round-character-assign-trigger:disabled,
 .round-character-copy-trigger:disabled,
+.round-character-delete-trigger:disabled,
 .round-character-set-active:disabled,
 .round-character-assignment-primary:disabled,
+.round-character-delete-confirm:disabled,
 .round-character-assignment-secondary:disabled {
   cursor: not-allowed;
   opacity: 0.65;
@@ -2123,6 +2152,19 @@ button {
 
 .round-character-set-active[data-submitting='true'] {
   cursor: progress;
+}
+
+.round-character-delete-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
+.round-character-prepared-actions {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(9rem, 100%), 1fr)
+  );
+  gap: var(--space-sm);
 }
 
 .round-character-active-overview {
@@ -2539,6 +2581,9 @@ button {
   .character-copy-trigger,
   .character-copy-confirm,
   .character-copy-cancel,
+  .character-delete-trigger,
+  .character-delete-confirm,
+  .character-delete-cancel,
   .character-edit-actions .auth-submit,
   .character-edit-cancel,
   .edit-round-actions .auth-submit,
