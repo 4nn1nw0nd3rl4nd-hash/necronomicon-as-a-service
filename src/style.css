@@ -2066,6 +2066,14 @@ button {
   overflow-wrap: anywhere;
 }
 
+.round-character-assignment-panel .round-character-name-collision {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgba(196, 177, 112, 0.38);
+  border-radius: var(--radius-sm);
+  background-color: rgba(196, 177, 112, 0.08);
+  color: var(--color-text);
+}
+
 .round-character-assignment-actions {
   display: flex;
   flex-wrap: wrap;

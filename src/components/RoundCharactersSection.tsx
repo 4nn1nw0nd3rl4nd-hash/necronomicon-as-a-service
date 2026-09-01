@@ -27,6 +27,10 @@ function getMemberName(member: RoundMember) {
   return member.profile.display_name.trim() || 'Mitglied'
 }
 
+function normalizeCharacterName(name: string) {
+  return name.trim().toLocaleLowerCase('de-DE')
+}
+
 function RoundCharactersSection({
   roundId,
   roundStatus,
@@ -126,6 +130,15 @@ function RoundCharactersSection({
           const selectedMember = members.find(
             ({ user_id }) => user_id === selectedUserId,
           )
+          const hasVisibleNameCollision =
+            Boolean(selectedUserId) &&
+            characters.some(
+              (visibleCharacter) =>
+                visibleCharacter.id !== character.id &&
+                visibleCharacter.owner_user_id === selectedUserId &&
+                normalizeCharacterName(visibleCharacter.name) ===
+                  normalizeCharacterName(character.name),
+            )
           const isAssignmentOpen =
             assignmentCharacterId === character.id
           const canAssignCharacter =
@@ -232,6 +245,14 @@ function RoundCharactersSection({
                             : 'Mitglied'
                         }“ zuweisen?`}
                       </p>
+                      {hasVisibleNameCollision && (
+                        <p className="round-character-name-collision">
+                          Dieser Spieler hat in dieser Runde bereits einen
+                          Charakter namens „{character.name.trim()}“. Beide
+                          Charaktere bleiben unabhängig voneinander und dürfen
+                          denselben Namen tragen.
+                        </p>
+                      )}
                       <p>
                         Nach der Zuweisung gehört der Charakter dauerhaft
                         diesem Spieler. Du kannst ihn als Spielleitung dieser
@@ -253,7 +274,9 @@ function RoundCharactersSection({
                         >
                           {isSubmitting
                             ? 'Wird zugewiesen...'
-                            : 'Dauerhaft zuweisen'}
+                            : hasVisibleNameCollision
+                              ? 'Trotzdem dauerhaft zuweisen'
+                              : 'Dauerhaft zuweisen'}
                         </button>
                         <button
                           className="round-character-assignment-secondary"
