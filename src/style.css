@@ -1836,6 +1836,35 @@ button {
   margin-top: var(--space-md);
 }
 
+.character-sheet-fields-compact-checks {
+  grid-template-columns: repeat(auto-fit, 3rem);
+  gap: var(--space-sm);
+}
+
+.character-sheet-fields-compact-checks .character-sheet-field-check {
+  grid-template-columns: 1fr;
+  min-height: 3rem;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  place-items: center;
+}
+
+.character-sheet-fields-compact-shorts {
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(10rem, 100%), 12rem)
+  );
+}
+
+.character-sheet-fields-compact-shorts
+  .character-sheet-field-character_name,
+.character-sheet-fields-compact-shorts .character-sheet-field-long,
+.character-sheet-fields-compact-shorts .character-sheet-field-check {
+  grid-column: 1 / -1;
+}
+
 .character-sheet-group {
   min-width: 0;
   padding: var(--space-md);
@@ -2847,6 +2876,13 @@ button {
   .character-sheet-section-half,
   .character-sheet-section-full {
     grid-column: 1 / -1;
+  }
+
+  .character-sheet-fields-compact-shorts {
+    grid-template-columns: repeat(
+      auto-fit,
+      minmax(min(9rem, 100%), 12rem)
+    );
   }
 
   .character-portrait-section {

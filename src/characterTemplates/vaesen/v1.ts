@@ -117,7 +117,7 @@ export const vaesenTemplateV1: CharacterTemplateDefinition = {
       key: 'section_resources',
       label: 'Vermögen',
       order: 40,
-      width: 'small',
+      width: 'half',
       fields: [
         {
           key: 'resources',
@@ -131,7 +131,7 @@ export const vaesenTemplateV1: CharacterTemplateDefinition = {
       key: 'section_conditions',
       label: 'Zustände',
       order: 50,
-      width: 'half',
+      width: 'full',
       groups: [
         {
           key: 'group_physical_conditions',
@@ -391,7 +391,7 @@ export const vaesenTemplateV1: CharacterTemplateDefinition = {
       key: 'section_experience',
       label: 'Erfahrung',
       order: 140,
-      width: 'small',
+      width: 'half',
       fields: [
         {
           key: 'experience_1',

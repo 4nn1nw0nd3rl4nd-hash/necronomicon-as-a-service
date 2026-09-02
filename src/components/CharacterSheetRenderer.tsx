@@ -31,6 +31,30 @@ function byOrder<T extends { order: number }>(items: readonly T[]) {
   return [...items].sort((first, second) => first.order - second.order)
 }
 
+function getCharacterFieldsClassName(
+  fields: readonly CharacterTemplateField[],
+) {
+  const containsOnlyUnlabeledChecks =
+    fields.length > 0 &&
+    fields.every(
+      (field) => field.type === 'check' && field.showLabel === false,
+    )
+  const containsMultipleShortFields =
+    fields.filter((field) => field.type === 'short').length >= 2
+
+  const classNames = ['character-sheet-fields']
+
+  if (containsOnlyUnlabeledChecks) {
+    classNames.push('character-sheet-fields-compact-checks')
+  }
+
+  if (containsMultipleShortFields) {
+    classNames.push('character-sheet-fields-compact-shorts')
+  }
+
+  return classNames.join(' ')
+}
+
 function ViewCharacterField({
   character,
   field,
@@ -220,7 +244,7 @@ export function CharacterSheetRenderer(props: CharacterSheetRendererProps) {
             <h2>{section.label}</h2>
 
             {section.fields && section.fields.length > 0 && (
-              <div className="character-sheet-fields">
+              <div className={getCharacterFieldsClassName(section.fields)}>
                 {byOrder(section.fields).map((field) => (
                   <Fragment key={field.key}>
                     {renderCharacterField(props, field)}
@@ -234,7 +258,9 @@ export function CharacterSheetRenderer(props: CharacterSheetRendererProps) {
                 {byOrder(section.groups).map((group) => (
                   <section className="character-sheet-group" key={group.key}>
                     <h3>{group.label}</h3>
-                    <div className="character-sheet-fields">
+                    <div
+                      className={getCharacterFieldsClassName(group.fields)}
+                    >
                       {byOrder(group.fields).map((field) => (
                         <Fragment key={field.key}>
                           {renderCharacterField(props, field)}
