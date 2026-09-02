@@ -1544,6 +1544,151 @@ button {
   font-size: 0.85rem;
 }
 
+.character-portrait-section {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.character-portrait-section > h2 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 650;
+}
+
+.character-portrait-frame {
+  width: 100%;
+  max-width: 14rem;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.character-portrait-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-portrait-state,
+.character-portrait-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-content: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-md);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.character-portrait-state p {
+  margin: 0;
+}
+
+.character-portrait-placeholder > span:first-child {
+  color: var(--color-accent);
+  font-size: 2rem;
+}
+
+.character-portrait-management {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: var(--space-md);
+}
+
+.character-portrait-file-input {
+  display: none;
+}
+
+.character-portrait-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.character-portrait-actions,
+.character-portrait-remove-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.character-portrait-upload,
+.character-portrait-remove-trigger,
+.character-portrait-remove-confirm,
+.character-portrait-remove-cancel,
+.character-portrait-retry {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.character-portrait-upload:hover:not(:disabled),
+.character-portrait-remove-trigger:hover:not(:disabled),
+.character-portrait-remove-confirm:hover:not(:disabled),
+.character-portrait-remove-cancel:hover:not(:disabled),
+.character-portrait-retry:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.character-portrait-upload:focus-visible,
+.character-portrait-remove-trigger:focus-visible,
+.character-portrait-remove-confirm:focus-visible,
+.character-portrait-remove-cancel:focus-visible,
+.character-portrait-retry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.character-portrait-remove-trigger,
+.character-portrait-remove-confirm {
+  border-color: #9b766e;
+  color: #d9b8b0;
+}
+
+.character-portrait-remove-confirmation {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-left: 2px solid #9b766e;
+  background-color: var(--color-surface-alt);
+}
+
+.character-portrait-remove-confirmation p {
+  margin: 0;
+  color: #d9b8b0;
+  line-height: 1.5;
+}
+
+.character-portrait-upload:disabled,
+.character-portrait-remove-trigger:disabled,
+.character-portrait-remove-confirm:disabled,
+.character-portrait-remove-cancel:disabled,
+.character-portrait-retry:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.character-portrait-upload[data-submitting='true'],
+.character-portrait-remove-trigger[data-submitting='true'],
+.character-portrait-remove-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
 .character-round-assignment {
   display: grid;
   gap: var(--space-md);
@@ -2691,6 +2836,7 @@ button {
   .round-detail-card,
   .round-members-card,
   .character-detail-header,
+  .character-portrait-section,
   .character-template-unavailable,
   .character-round-assignment,
   .character-sheet-section {
@@ -2701,6 +2847,15 @@ button {
   .character-sheet-section-half,
   .character-sheet-section-full {
     grid-column: 1 / -1;
+  }
+
+  .character-portrait-section {
+    grid-template-columns: 1fr;
+  }
+
+  .character-portrait-frame {
+    width: min(100%, 14rem);
+    justify-self: center;
   }
 
   .profile-detail {
@@ -2762,6 +2917,10 @@ button {
   .character-delete-trigger,
   .character-delete-confirm,
   .character-delete-cancel,
+  .character-portrait-upload,
+  .character-portrait-remove-trigger,
+  .character-portrait-remove-confirm,
+  .character-portrait-remove-cancel,
   .character-section-button,
   .character-restore-trigger,
   .character-restore-confirm,

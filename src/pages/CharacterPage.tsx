@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { FormEvent } from 'react'
+import { useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import {
   Link,
   useLocation,
@@ -11,10 +11,13 @@ import CharacterRoundAssignment from '../components/CharacterRoundAssignment'
 import { CharacterSheetRenderer } from '../components/CharacterSheetRenderer'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useCharacter } from '../hooks/useCharacter'
+import { useCharacterPortrait } from '../hooks/useCharacterPortrait'
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
+import { useRemoveCharacterPortrait } from '../hooks/useRemoveCharacterPortrait'
 import { useSetCharacterCheck } from '../hooks/useSetCharacterCheck'
 import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
 import { useUpdateCharacter } from '../hooks/useUpdateCharacter'
+import { useUploadCharacterPortrait } from '../hooks/useUploadCharacterPortrait'
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -71,6 +74,25 @@ function CharacterPage() {
     updateCharacterDataField,
   } = useCharacter(characterId)
   const {
+    portraitUrl,
+    isLoading: isPortraitLoading,
+    error: portraitError,
+    reload: reloadPortrait,
+    clearPortrait,
+  } = useCharacterPortrait(character?.id)
+  const {
+    isSubmitting: isUploadingPortrait,
+    error: portraitUploadError,
+    uploadCharacterPortrait,
+    resetState: resetPortraitUploadState,
+  } = useUploadCharacterPortrait()
+  const {
+    isSubmitting: isRemovingPortrait,
+    error: portraitRemoveError,
+    removeCharacterPortrait,
+    resetState: resetPortraitRemoveState,
+  } = useRemoveCharacterPortrait()
+  const {
     error: checkError,
     hasPendingRequests: hasPendingCheckRequests,
     isFieldSubmitting: isCheckSubmitting,
@@ -95,6 +117,7 @@ function CharacterPage() {
     softDeleteCharacter,
     resetState: resetDeleteState,
   } = useSoftDeleteCharacter()
+  const portraitFileInputRef = useRef<HTMLInputElement>(null)
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(
     null,
   )
@@ -105,8 +128,20 @@ function CharacterPage() {
     useState(false)
   const [isDeleteConfirmationOpen, setIsDeleteConfirmationOpen] =
     useState(false)
+  const [isPortraitRemoveConfirmationOpen, setIsPortraitRemoveConfirmationOpen] =
+    useState(false)
 
   const isEditing = editingCharacterId === character?.id
+  const isCharacterOwner = Boolean(
+    character && user && character.owner_user_id === user.id,
+  )
+  const canManagePortrait = Boolean(
+    character &&
+      user &&
+      character.deleted_at === null &&
+      (isCharacterOwner || character.round_id !== null),
+  )
+  const isPortraitMutating = isUploadingPortrait || isRemovingPortrait
 
   const resetEditMessages = () => {
     setValidationError(null)
@@ -248,6 +283,67 @@ function CharacterPage() {
     }
   }
 
+  const openPortraitFilePicker = () => {
+    if (!canManagePortrait || isPortraitMutating) {
+      return
+    }
+
+    resetPortraitUploadState()
+    resetPortraitRemoveState()
+    setIsPortraitRemoveConfirmationOpen(false)
+    portraitFileInputRef.current?.click()
+  }
+
+  const handlePortraitFileChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file || !character || !canManagePortrait) {
+      return
+    }
+
+    resetPortraitRemoveState()
+    const wasUploaded = await uploadCharacterPortrait(character.id, file)
+
+    if (wasUploaded) {
+      reloadPortrait()
+    }
+  }
+
+  const openPortraitRemoveConfirmation = () => {
+    if (!canManagePortrait || !portraitUrl || isPortraitMutating) {
+      return
+    }
+
+    resetPortraitUploadState()
+    resetPortraitRemoveState()
+    setIsPortraitRemoveConfirmationOpen(true)
+  }
+
+  const cancelPortraitRemoveConfirmation = () => {
+    if (isRemovingPortrait) {
+      return
+    }
+
+    resetPortraitRemoveState()
+    setIsPortraitRemoveConfirmationOpen(false)
+  }
+
+  const confirmPortraitRemove = async () => {
+    if (!character || !canManagePortrait) {
+      return
+    }
+
+    const wasRemoved = await removeCharacterPortrait(character.id)
+
+    if (wasRemoved) {
+      setIsPortraitRemoveConfirmationOpen(false)
+      clearPortrait()
+    }
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -306,8 +402,6 @@ function CharacterPage() {
       character.template_key,
       character.template_version,
     )
-    const isCharacterOwner = character.owner_user_id === user?.id
-
     content = (
       <article className="character-detail">
         <header className="character-detail-header">
@@ -359,6 +453,124 @@ function CharacterPage() {
             <span>Version {character.template_version}</span>
           </p>
         </header>
+
+        <section
+          aria-labelledby="character-portrait-title"
+          className="character-portrait-section"
+        >
+          <h2 id="character-portrait-title">Portrait</h2>
+          <div className="character-portrait-frame">
+            {isPortraitLoading ? (
+              <p className="character-portrait-state" role="status">
+                Portrait wird geladen...
+              </p>
+            ) : portraitError ? (
+              <div className="character-portrait-state">
+                <p role="alert">{portraitError}</p>
+                <button
+                  className="character-portrait-retry"
+                  onClick={reloadPortrait}
+                  type="button"
+                >
+                  Erneut versuchen
+                </button>
+              </div>
+            ) : portraitUrl ? (
+              <img
+                alt={`Portrait von ${character.name}`}
+                className="character-portrait-image"
+                src={portraitUrl}
+              />
+            ) : (
+              <div className="character-portrait-placeholder">
+                <span aria-hidden="true">◇</span>
+                <span>Kein Portrait</span>
+              </div>
+            )}
+          </div>
+
+          {canManagePortrait && !isPortraitLoading && !portraitError && (
+            <div className="character-portrait-management">
+              <input
+                accept="image/jpeg,image/png,image/webp"
+                className="character-portrait-file-input"
+                disabled={isPortraitMutating}
+                onChange={(event) => void handlePortraitFileChange(event)}
+                ref={portraitFileInputRef}
+                type="file"
+              />
+              <p className="character-portrait-hint">
+                JPEG, PNG oder WebP · max. 5 MB
+              </p>
+              <div className="character-portrait-actions">
+                <button
+                  className="character-portrait-upload"
+                  data-submitting={isUploadingPortrait}
+                  disabled={isPortraitMutating}
+                  onClick={openPortraitFilePicker}
+                  type="button"
+                >
+                  {isUploadingPortrait
+                    ? 'Wird hochgeladen...'
+                    : portraitUrl
+                      ? 'Portrait ändern'
+                      : 'Portrait hochladen'}
+                </button>
+                {portraitUrl && (
+                  <button
+                    aria-controls="character-portrait-remove-confirmation"
+                    aria-expanded={isPortraitRemoveConfirmationOpen}
+                    className="character-portrait-remove-trigger"
+                    data-submitting={isRemovingPortrait}
+                    disabled={isPortraitMutating}
+                    onClick={openPortraitRemoveConfirmation}
+                    type="button"
+                  >
+                    {isRemovingPortrait
+                      ? 'Wird entfernt...'
+                      : 'Portrait entfernen'}
+                  </button>
+                )}
+              </div>
+
+              {(portraitUploadError || portraitRemoveError) && (
+                <p className="profile-form-error" role="alert">
+                  {portraitUploadError ?? portraitRemoveError}
+                </p>
+              )}
+
+              {portraitUrl && isPortraitRemoveConfirmationOpen && (
+                <div
+                  className="character-portrait-remove-confirmation"
+                  id="character-portrait-remove-confirmation"
+                >
+                  <p>Möchtest du das Portrait wirklich entfernen?</p>
+                  <div className="character-portrait-remove-actions">
+                    <button
+                      className="character-portrait-remove-confirm"
+                      data-submitting={isRemovingPortrait}
+                      disabled={isPortraitMutating}
+                      onClick={() => void confirmPortraitRemove()}
+                      type="button"
+                    >
+                      {isRemovingPortrait
+                        ? 'Wird entfernt...'
+                        : 'Portrait entfernen'}
+                    </button>
+                    <button
+                      className="character-portrait-remove-cancel"
+                      disabled={isPortraitMutating}
+                      onClick={cancelPortraitRemoveConfirmation}
+                      type="button"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         {isCharacterOwner && isCopyConfirmationOpen && !isEditing && (
           <section
