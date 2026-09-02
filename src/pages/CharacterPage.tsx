@@ -142,6 +142,8 @@ function CharacterPage() {
       (isCharacterOwner || character.round_id !== null),
   )
   const isPortraitMutating = isUploadingPortrait || isRemovingPortrait
+  const isPortraitManagementVisible =
+    canManagePortrait && !isPortraitLoading && !portraitError
 
   const resetEditMessages = () => {
     setValidationError(null)
@@ -456,7 +458,11 @@ function CharacterPage() {
 
         <section
           aria-labelledby="character-portrait-title"
-          className="character-portrait-section"
+          className={`character-portrait-section${
+            isPortraitManagementVisible
+              ? ' character-portrait-section-with-management'
+              : ''
+          }`}
         >
           <h2 id="character-portrait-title">Portrait</h2>
           <div className="character-portrait-frame">
@@ -489,7 +495,7 @@ function CharacterPage() {
             )}
           </div>
 
-          {canManagePortrait && !isPortraitLoading && !portraitError && (
+          {isPortraitManagementVisible && (
             <div className="character-portrait-management">
               <input
                 accept="image/jpeg,image/png,image/webp"

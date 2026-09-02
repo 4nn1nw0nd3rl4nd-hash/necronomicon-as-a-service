@@ -1546,12 +1546,19 @@ button {
 
 .character-portrait-section {
   display: grid;
-  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  grid-template-columns: minmax(10rem, 14rem);
   gap: var(--space-lg);
+  width: fit-content;
+  max-width: 100%;
   padding: var(--space-lg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background-color: var(--color-surface);
+}
+
+.character-portrait-section-with-management {
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  width: 100%;
 }
 
 .character-portrait-section > h2 {
@@ -1921,6 +1928,23 @@ button {
   color: var(--color-text);
   cursor: pointer;
   white-space: nowrap;
+}
+
+.character-edit-button {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-background);
+  font-weight: 650;
+}
+
+.character-edit-button:hover:not(:disabled) {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.character-delete-trigger {
+  border-color: #9b766e;
+  color: #d9b8b0;
 }
 
 .character-edit-button:hover,
@@ -2887,6 +2911,12 @@ button {
 
   .character-portrait-section {
     grid-template-columns: 1fr;
+  }
+
+  .character-portrait-section:not(
+      .character-portrait-section-with-management
+    ) {
+    justify-self: center;
   }
 
   .character-portrait-frame {
