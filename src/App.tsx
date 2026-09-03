@@ -7,6 +7,7 @@ import CharactersPage from './pages/CharactersPage'
 import CreateCharacterPage from './pages/CreateCharacterPage'
 import CreatePreparedCharacterPage from './pages/CreatePreparedCharacterPage'
 import DashboardPage from './pages/DashboardPage'
+import EmailConfirmedPage from './pages/EmailConfirmedPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -24,6 +25,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/auth/confirmed" element={<EmailConfirmedPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<GuestOnly />}>
         <Route path="/login" element={<LoginPage />} />

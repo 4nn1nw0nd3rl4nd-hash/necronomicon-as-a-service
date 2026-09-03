@@ -64,7 +64,7 @@ function RegisterPage() {
         email: normalizedEmail,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
+          emailRedirectTo: `${window.location.origin}/auth/confirmed?flow=signup`,
           data: {
             username: normalizedUsername,
             display_name: normalizedDisplayName,
