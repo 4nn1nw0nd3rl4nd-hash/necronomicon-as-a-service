@@ -104,14 +104,78 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Unsere bereits getestete DB-Funktion prüft:
-    // - Ist der Aufrufer Admin?
-    // - versucht er sich selbst zu löschen?
-    // - ist das Ziel der Superadmin?
-    //
-    // Außerdem:
-    // - SL-Runden → Superadmin
-    // - übrige Memberships → entfernen
+    if (user.id === userId) {
+      return new Response(
+        JSON.stringify({
+          error: 'Not authorized to delete this user',
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+
+    const [callerProfileResult, targetProfileResult] = await Promise.all([
+      userClient
+        .from('profiles')
+        .select('role, is_superadmin')
+        .eq('id', user.id)
+        .maybeSingle(),
+      userClient
+        .from('profiles')
+        .select('role, is_superadmin')
+        .eq('id', userId)
+        .maybeSingle(),
+    ])
+
+    if (callerProfileResult.error || targetProfileResult.error) {
+      return new Response(
+        JSON.stringify({
+          error: 'Authorization check failed',
+        }),
+        {
+          status: 500,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+
+    const callerProfile = callerProfileResult.data
+    const targetProfile = targetProfileResult.data
+    const callerIsSuperadmin = callerProfile?.is_superadmin === true
+    const callerIsAdmin =
+      callerProfile?.role === 'admin' && !callerIsSuperadmin
+    const targetIsUser = targetProfile?.role === 'user'
+    const targetIsAdmin = targetProfile?.role === 'admin'
+    const canDeleteTarget =
+      targetProfile?.is_superadmin === false &&
+      ((callerIsSuperadmin && (targetIsUser || targetIsAdmin)) ||
+        (callerIsAdmin && targetIsUser))
+
+    if (!canDeleteTarget) {
+      return new Response(
+        JSON.stringify({
+          error: 'Not authorized to delete this user',
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+
+    // Die Edge Function prüft die Rollenmatrix vorab. Die DB-Funktion
+    // validiert sie erneut und bleibt für die Löschvorbereitung autoritativ.
     const { error: prepareError } =
       await userClient.rpc('prepare_user_deletion', {
         p_user_id: userId,
