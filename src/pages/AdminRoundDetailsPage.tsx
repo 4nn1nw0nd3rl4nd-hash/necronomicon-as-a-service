@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import EditRoundForm from '../components/EditRoundForm'
 import { useAdminRoundDetails } from '../hooks/useAdminRoundDetails'
+import { useSetRoundArchived } from '../hooks/useSetRoundArchived'
 import type { RoundStatus } from '../types/round'
 
 function getStatusLabel(status: RoundStatus) {
@@ -18,9 +18,36 @@ function AdminRoundDetailsPage() {
   const { roundId } = useParams<{ roundId: string }>()
   const { round, isLoading, error, reload } =
     useAdminRoundDetails(roundId)
-  const [editingRoundId, setEditingRoundId] = useState<string | null>(
-    null,
-  )
+  const {
+    isSubmitting: isArchiveSubmitting,
+    error: archiveError,
+    setRoundArchived,
+    resetState: resetArchiveState,
+  } = useSetRoundArchived()
+  const [isConfirmingArchive, setIsConfirmingArchive] = useState(false)
+
+  const openArchiveConfirmation = () => {
+    resetArchiveState()
+    setIsConfirmingArchive(true)
+  }
+
+  const cancelArchiveConfirmation = () => {
+    resetArchiveState()
+    setIsConfirmingArchive(false)
+  }
+
+  const handleArchiveChange = async (
+    targetRoundId: string,
+    archived: boolean,
+  ) => {
+    resetArchiveState()
+    const wasChanged = await setRoundArchived(targetRoundId, archived)
+
+    if (wasChanged) {
+      setIsConfirmingArchive(false)
+      reload()
+    }
+  }
 
   let content
 
@@ -44,28 +71,36 @@ function AdminRoundDetailsPage() {
       </div>
     )
   } else if (round) {
-    content =
-      editingRoundId === round.id ? (
-        <EditRoundForm
-          round={round}
-          onCancel={() => setEditingRoundId(null)}
-          onUpdated={() => {
-            setEditingRoundId(null)
-            reload()
-          }}
-        />
-      ) : (
+    const isArchived = round.status === 'archived'
+
+    content = (
       <article className="round-detail-card">
         <header className="round-detail-header">
           <div className="round-detail-title-row">
             <h1>{round.name}</h1>
-            <button
-              className="round-edit-button"
-              type="button"
-              onClick={() => setEditingRoundId(round.id)}
-            >
-              Bearbeiten
-            </button>
+            {!isConfirmingArchive && (
+              <button
+                className={`admin-round-archive-trigger${
+                  isArchived ? ' is-unarchive' : ''
+                }`}
+                type="button"
+                disabled={isArchiveSubmitting}
+                data-submitting={isArchiveSubmitting}
+                onClick={() => {
+                  if (isArchived) {
+                    void handleArchiveChange(round.id, false)
+                  } else {
+                    openArchiveConfirmation()
+                  }
+                }}
+              >
+                {isArchiveSubmitting
+                  ? 'Wird geändert...'
+                  : isArchived
+                    ? 'Aus Archiv holen'
+                    : 'Archivieren'}
+              </button>
+            )}
           </div>
           <div className="round-badges">
             <span
@@ -75,6 +110,42 @@ function AdminRoundDetailsPage() {
             </span>
           </div>
         </header>
+        {isConfirmingArchive && (
+          <section className="admin-round-archive-confirmation">
+            <p>
+              Runde „{round.name}“ wirklich archivieren?
+            </p>
+            {archiveError && (
+              <p className="profile-form-error" role="alert">
+                {archiveError}
+              </p>
+            )}
+            <div className="admin-round-archive-confirmation-actions">
+              <button
+                className="admin-round-archive-confirm"
+                type="button"
+                disabled={isArchiveSubmitting}
+                data-submitting={isArchiveSubmitting}
+                onClick={() => void handleArchiveChange(round.id, true)}
+              >
+                {isArchiveSubmitting ? 'Wird archiviert...' : 'Archivieren'}
+              </button>
+              <button
+                className="admin-round-archive-cancel"
+                type="button"
+                disabled={isArchiveSubmitting}
+                onClick={cancelArchiveConfirmation}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </section>
+        )}
+        {!isConfirmingArchive && archiveError && (
+          <p className="profile-form-error" role="alert">
+            {archiveError}
+          </p>
+        )}
         {(round.system || round.appointment) && (
           <dl className="round-detail-meta">
             {round.system && (
@@ -103,7 +174,7 @@ function AdminRoundDetailsPage() {
           </p>
         </section>
       </article>
-      )
+    )
   } else {
     content = (
       <p className="round-detail-state" role="alert">

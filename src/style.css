@@ -2119,6 +2119,9 @@ button {
 }
 
 .round-edit-button,
+.admin-round-archive-trigger,
+.admin-round-archive-confirm,
+.admin-round-archive-cancel,
 .edit-round-cancel {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -2130,14 +2133,66 @@ button {
 }
 
 .round-edit-button:hover,
+.admin-round-archive-trigger:hover:not(:disabled),
+.admin-round-archive-confirm:hover:not(:disabled),
+.admin-round-archive-cancel:hover:not(:disabled),
 .edit-round-cancel:hover:not(:disabled) {
   border-color: var(--color-accent);
 }
 
 .round-edit-button:focus-visible,
+.admin-round-archive-trigger:focus-visible,
+.admin-round-archive-confirm:focus-visible,
+.admin-round-archive-cancel:focus-visible,
 .edit-round-cancel:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
+}
+
+.admin-round-archive-trigger,
+.admin-round-archive-confirm {
+  border-color: #9b766e;
+  color: #d9b8b0;
+}
+
+.admin-round-archive-trigger.is-unarchive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.admin-round-archive-trigger:disabled,
+.admin-round-archive-confirm:disabled,
+.admin-round-archive-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.admin-round-archive-trigger[data-submitting='true'],
+.admin-round-archive-confirm[data-submitting='true'] {
+  cursor: progress;
+}
+
+.admin-round-archive-confirmation {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border-left: 3px solid #9b766e;
+  background-color: color-mix(
+    in srgb,
+    #9b766e 10%,
+    var(--color-surface-alt)
+  );
+}
+
+.admin-round-archive-confirmation p {
+  margin: 0;
+}
+
+.admin-round-archive-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
 }
 
 .edit-round-form {
@@ -2976,6 +3031,9 @@ button {
   }
 
   .round-edit-button,
+  .admin-round-archive-trigger,
+  .admin-round-archive-confirm,
+  .admin-round-archive-cancel,
   .character-edit-button,
   .character-copy-trigger,
   .character-copy-confirm,
