@@ -6,6 +6,7 @@ export type Profile = {
   display_name: string | null
   role: ProfileRole
   is_superadmin: boolean
+  deletion_pending_at: string | null
   created_at: string
   updated_at: string
 }

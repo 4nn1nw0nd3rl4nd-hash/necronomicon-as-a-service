@@ -32,7 +32,7 @@ export function useAdminUsers() {
         const { data, error } = await supabase
           .from('profiles')
           .select(
-            'id, username, display_name, role, is_superadmin, created_at, updated_at',
+            'id, username, display_name, role, is_superadmin, deletion_pending_at, created_at, updated_at',
           )
           .order('is_superadmin', { ascending: false })
           .order('username', { ascending: true })

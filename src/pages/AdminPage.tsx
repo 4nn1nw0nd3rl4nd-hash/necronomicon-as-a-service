@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../auth/useAuth'
+import {
+  Link,
+  useOutletContext,
+  useSearchParams,
+} from 'react-router-dom'
 import { useAdminRoleActions } from '../hooks/useAdminRoleActions'
 import { useAdminRounds } from '../hooks/useAdminRounds'
 import { useAdminUsers } from '../hooks/useAdminUsers'
 import { useDeleteUser } from '../hooks/useDeleteUser'
+import type { AdminOutletContext } from '../routes/RequireAdmin'
 import type { RoundStatus } from '../types/round'
 
 type AdminSection = 'users' | 'rounds'
@@ -20,11 +24,16 @@ function getRoundStatusLabel(status: RoundStatus) {
 }
 
 function AdminPage() {
-  const { user: currentUser } = useAuth()
+  const { currentProfile } =
+    useOutletContext<AdminOutletContext>()
+  const isCurrentSuperadmin =
+    currentProfile.is_superadmin === true
   const [searchParams, setSearchParams] = useSearchParams()
   const activeSection: AdminSection =
     searchParams.get('section') === 'rounds' ? 'rounds' : 'users'
   const [pendingDemotionUserId, setPendingDemotionUserId] =
+    useState<string | null>(null)
+  const [pendingPromotionUserId, setPendingPromotionUserId] =
     useState<string | null>(null)
   const [pendingDeletionUserId, setPendingDeletionUserId] =
     useState<string | null>(null)
@@ -53,6 +62,14 @@ function AdminPage() {
   } = useDeleteUser()
   const isAnyActionSubmitting = isRoleSubmitting || isDeleting
 
+  const openPromotionConfirmation = (targetUserId: string) => {
+    resetRoleActionState()
+    resetDeleteState()
+    setPendingDemotionUserId(null)
+    setPendingDeletionUserId(null)
+    setPendingPromotionUserId(targetUserId)
+  }
+
   const handlePromoteUser = async (targetUserId: string) => {
     setPendingDemotionUserId(null)
     setPendingDeletionUserId(null)
@@ -60,6 +77,7 @@ function AdminPage() {
     const wasPromoted = await promoteUser(targetUserId)
 
     if (wasPromoted) {
+      setPendingPromotionUserId(null)
       reload()
     }
   }
@@ -67,6 +85,7 @@ function AdminPage() {
   const openDemotionConfirmation = (targetUserId: string) => {
     resetRoleActionState()
     resetDeleteState()
+    setPendingPromotionUserId(null)
     setPendingDeletionUserId(null)
     setPendingDemotionUserId(targetUserId)
   }
@@ -83,6 +102,7 @@ function AdminPage() {
   const openDeletionConfirmation = (targetUserId: string) => {
     resetDeleteState()
     resetRoleActionState()
+    setPendingPromotionUserId(null)
     setPendingDemotionUserId(null)
     setPendingDeletionUserId(targetUserId)
   }
@@ -195,16 +215,36 @@ function AdminPage() {
                       : role === 'admin'
                         ? 'Admin'
                         : 'Nutzer'
+                  const isOwnAccount =
+                    user.id === currentProfile.id
+                  const isTargetSuperadmin =
+                    user.is_superadmin === true
+                  const isDeletionPrepared =
+                    user.deletion_pending_at !== null
+                  const canPromote =
+                    isCurrentSuperadmin &&
+                    user.role === 'user' &&
+                    !isTargetSuperadmin &&
+                    !isOwnAccount &&
+                    !isDeletionPrepared
                   const canDemote =
+                    isCurrentSuperadmin &&
                     user.role === 'admin' &&
-                    user.is_superadmin === false &&
-                    user.id !== currentUser?.id
+                    !isTargetSuperadmin &&
+                    !isOwnAccount &&
+                    !isDeletionPrepared
+                  const isPromotionPending =
+                    pendingPromotionUserId === user.id
                   const isDemotionPending =
                     pendingDemotionUserId === user.id
                   const canDelete =
-                    user.id !== currentUser?.id &&
-                    user.is_superadmin === false
-                  const isDeletionPending =
+                    !isOwnAccount &&
+                    !isTargetSuperadmin &&
+                    (isCurrentSuperadmin ||
+                      (currentProfile.role === 'admin' &&
+                        currentProfile.is_superadmin === false &&
+                        user.role === 'user'))
+                  const isDeletionConfirmationOpen =
                     pendingDeletionUserId === user.id
 
                   return (
@@ -226,8 +266,59 @@ function AdminPage() {
                         >
                           {roleLabel}
                         </span>
-                        {user.role === 'user' &&
-                          user.is_superadmin === false && (
+                        {isDeletionPrepared && (
+                          <span className="admin-deletion-pending-badge">
+                            Löschung vorbereitet
+                          </span>
+                        )}
+                        {canPromote && !isPromotionPending && (
+                          <button
+                            type="button"
+                            className="admin-promote-button"
+                            disabled={isAnyActionSubmitting}
+                            onClick={() =>
+                              openPromotionConfirmation(user.id)
+                            }
+                          >
+                            Zum Admin machen
+                          </button>
+                        )}
+                        {canDemote && !isDemotionPending && (
+                          <button
+                            type="button"
+                            className="admin-demote-button"
+                            disabled={isAnyActionSubmitting}
+                            onClick={() =>
+                              openDemotionConfirmation(user.id)
+                            }
+                          >
+                            Zum Nutzer zurückstufen
+                          </button>
+                        )}
+                        {canDelete && !isDeletionConfirmationOpen && (
+                          <button
+                            type="button"
+                            className="admin-delete-button"
+                            disabled={isAnyActionSubmitting}
+                            onClick={() =>
+                              openDeletionConfirmation(user.id)
+                            }
+                          >
+                            {isDeletionPrepared
+                              ? 'Löschung erneut versuchen'
+                              : 'Nutzer löschen'}
+                          </button>
+                        )}
+                      </div>
+                      {canPromote && isPromotionPending && (
+                        <div className="admin-demote-confirmation">
+                          <p>
+                            Nutzer „
+                            {user.display_name ?? user.username}“ wirklich
+                            zum Admin machen? Der Nutzer erhält dadurch
+                            globale Adminrechte.
+                          </p>
+                          <div className="admin-demote-confirmation-actions">
                             <button
                               type="button"
                               className={`admin-promote-button${
@@ -246,38 +337,26 @@ function AdminPage() {
                                 ? 'Wird geändert...'
                                 : 'Zum Admin machen'}
                             </button>
-                          )}
-                        {canDemote && !isDemotionPending && (
-                          <button
-                            type="button"
-                            className="admin-demote-button"
-                            disabled={isAnyActionSubmitting}
-                            onClick={() =>
-                              openDemotionConfirmation(user.id)
-                            }
-                          >
-                            Zum Nutzer zurückstufen
-                          </button>
-                        )}
-                        {canDelete && !isDeletionPending && (
-                          <button
-                            type="button"
-                            className="admin-delete-button"
-                            disabled={isAnyActionSubmitting}
-                            onClick={() =>
-                              openDeletionConfirmation(user.id)
-                            }
-                          >
-                            Nutzer löschen
-                          </button>
-                        )}
-                      </div>
+                            <button
+                              type="button"
+                              className="admin-demote-cancel"
+                              disabled={isAnyActionSubmitting}
+                              onClick={() =>
+                                setPendingPromotionUserId(null)
+                              }
+                            >
+                              Abbrechen
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {canDemote && isDemotionPending && (
                         <div className="admin-demote-confirmation">
                           <p>
                             Admin „
                             {user.display_name ?? user.username}“ wirklich
-                            zum Nutzer zurückstufen?
+                            zum Nutzer zurückstufen? Dadurch werden die
+                            globalen Adminrechte entzogen.
                           </p>
                           <div className="admin-demote-confirmation-actions">
                             <button
@@ -311,7 +390,7 @@ function AdminPage() {
                           </div>
                         </div>
                       )}
-                      {canDelete && isDeletionPending && (
+                      {canDelete && isDeletionConfirmationOpen && (
                         <div className="admin-delete-confirmation">
                           <p>
                             Nutzer „
@@ -335,7 +414,9 @@ function AdminPage() {
                             >
                               {isDeleting
                                 ? 'Wird gelöscht...'
-                                : 'Endgültig löschen'}
+                                : isDeletionPrepared
+                                  ? 'Löschung erneut versuchen'
+                                  : 'Endgültig löschen'}
                             </button>
                             <button
                               type="button"

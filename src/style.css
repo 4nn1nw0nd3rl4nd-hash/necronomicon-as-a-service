@@ -620,6 +620,16 @@ button {
   font-weight: 600;
 }
 
+.admin-deletion-pending-badge {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid #9b766e;
+  border-radius: 999px;
+  color: #d9b8b0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .admin-user-controls {
   display: flex;
   align-items: center;
