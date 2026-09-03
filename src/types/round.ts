@@ -31,7 +31,12 @@ export type RoundDetails = RoundSummary & {
 }
 
 export type AdminRound = RoundSummary & {
+  orphaned_at: string | null
   gameMaster: RoundMemberProfile | null
+}
+
+export type AdminRoundDetails = RoundDetails & {
+  orphaned_at: string | null
 }
 
 export type RoundDetailsMembership = {
@@ -54,6 +59,11 @@ export type RoundMemberProfile = {
   display_name: string
 }
 
+export type RecoveryCandidateProfile = RoundMemberProfile & {
+  is_superadmin: boolean
+  deletion_pending_at: string | null
+}
+
 export type RoundMember = {
   id: string
   round_id: string
@@ -61,5 +71,5 @@ export type RoundMember = {
   role: RoundMembershipRole
   active_character_id: string | null
   created_at: string
-  profile: RoundMemberProfile
+  profile: RecoveryCandidateProfile
 }

@@ -317,9 +317,10 @@ function AdminPage() {
                             Nutzer „
                             {user.display_name ?? user.username}“ wirklich
                             löschen? Diese Aktion kann nicht rückgängig
-                            gemacht werden. Bestehende
-                            Spielleitungs-Runden werden an den Superadmin
-                            übertragen.
+                            gemacht werden. Von diesem Nutzer geleitete
+                            Runden bleiben erhalten, werden archiviert und
+                            als verwaist markiert. Der Superadmin kann später
+                            eine neue Spielleitung festlegen.
                           </p>
                           <div className="admin-delete-confirmation-actions">
                             <button
@@ -384,11 +385,18 @@ function AdminPage() {
                       <article className="admin-round-card">
                         <header className="admin-round-card-header">
                           <h3>{round.name}</h3>
-                          <span
-                            className={`round-badge round-status-${round.status}`}
-                          >
-                            {getRoundStatusLabel(round.status)}
-                          </span>
+                          <div className="round-badges">
+                            <span
+                              className={`round-badge round-status-${round.status}`}
+                            >
+                              {getRoundStatusLabel(round.status)}
+                            </span>
+                            {round.orphaned_at !== null && (
+                              <span className="round-badge round-orphaned">
+                                Verwaist
+                              </span>
+                            )}
+                          </div>
                         </header>
                         <dl className="admin-round-details">
                           {round.system && (

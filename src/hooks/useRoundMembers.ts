@@ -62,7 +62,9 @@ export function useRoundMembers(
             profile:profiles!inner (
               id,
               username,
-              display_name
+              display_name,
+              is_superadmin,
+              deletion_pending_at
             )
           `)
           .eq('round_id', roundId)

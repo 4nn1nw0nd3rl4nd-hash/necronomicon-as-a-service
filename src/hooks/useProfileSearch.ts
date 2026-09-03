@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { RoundMemberProfile } from '../types/round'
+import type { RecoveryCandidateProfile } from '../types/round'
 
 type ProfileSearchState = {
-  result: RoundMemberProfile | null
+  result: RecoveryCandidateProfile | null
   isSearching: boolean
   error: string | null
 }
@@ -48,7 +48,7 @@ export function useProfileSearch() {
   }, [])
 
   const searchByUsername = useCallback(
-    async (username: string): Promise<RoundMemberProfile | null> => {
+    async (username: string): Promise<RecoveryCandidateProfile | null> => {
       if (isRequestInFlightRef.current) {
         return null
       }
@@ -66,10 +66,12 @@ export function useProfileSearch() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, username, display_name')
+          .select(
+            'id, username, display_name, is_superadmin, deletion_pending_at',
+          )
           .ilike('username', escapeIlikePattern(normalizedUsername))
           .maybeSingle()
-          .overrideTypes<RoundMemberProfile, { merge: false }>()
+          .overrideTypes<RecoveryCandidateProfile, { merge: false }>()
 
         if (!isMountedRef.current) {
           return null

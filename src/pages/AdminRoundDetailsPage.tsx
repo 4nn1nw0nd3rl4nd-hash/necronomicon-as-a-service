@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
+import OrphanedRoundRecovery from '../components/OrphanedRoundRecovery'
 import { useAdminRoundDetails } from '../hooks/useAdminRoundDetails'
+import { useRoundMembers } from '../hooks/useRoundMembers'
 import { useSetRoundArchived } from '../hooks/useSetRoundArchived'
+import type { AdminOutletContext } from '../routes/RequireAdmin'
 import type { RoundStatus } from '../types/round'
 
 function getStatusLabel(status: RoundStatus) {
@@ -16,8 +19,15 @@ function getStatusLabel(status: RoundStatus) {
 
 function AdminRoundDetailsPage() {
   const { roundId } = useParams<{ roundId: string }>()
+  const { currentProfile } = useOutletContext<AdminOutletContext>()
   const { round, isLoading, error, reload } =
     useAdminRoundDetails(roundId)
+  const {
+    members,
+    isLoading: areMembersLoading,
+    error: membersError,
+    reload: reloadMembers,
+  } = useRoundMembers(roundId, currentProfile.id)
   const {
     isSubmitting: isArchiveSubmitting,
     error: archiveError,
@@ -72,35 +82,40 @@ function AdminRoundDetailsPage() {
     )
   } else if (round) {
     const isArchived = round.status === 'archived'
+    const isOrphaned = round.orphaned_at !== null
+    const gameMaster = members.find(
+      (member) => member.role === 'game_master',
+    )
 
     content = (
       <article className="round-detail-card">
         <header className="round-detail-header">
           <div className="round-detail-title-row">
             <h1>{round.name}</h1>
-            {!isConfirmingArchive && (
-              <button
-                className={`admin-round-archive-trigger${
-                  isArchived ? ' is-unarchive' : ''
-                }`}
-                type="button"
-                disabled={isArchiveSubmitting}
-                data-submitting={isArchiveSubmitting}
-                onClick={() => {
-                  if (isArchived) {
-                    void handleArchiveChange(round.id, false)
-                  } else {
-                    openArchiveConfirmation()
-                  }
-                }}
-              >
-                {isArchiveSubmitting
-                  ? 'Wird geändert...'
-                  : isArchived
-                    ? 'Aus Archiv holen'
-                    : 'Archivieren'}
-              </button>
-            )}
+            {!isConfirmingArchive &&
+              !(isArchived && isOrphaned) && (
+                <button
+                  className={`admin-round-archive-trigger${
+                    isArchived ? ' is-unarchive' : ''
+                  }`}
+                  type="button"
+                  disabled={isArchiveSubmitting}
+                  data-submitting={isArchiveSubmitting}
+                  onClick={() => {
+                    if (isArchived) {
+                      void handleArchiveChange(round.id, false)
+                    } else {
+                      openArchiveConfirmation()
+                    }
+                  }}
+                >
+                  {isArchiveSubmitting
+                    ? 'Wird geändert...'
+                    : isArchived
+                      ? 'Aus Archiv holen'
+                      : 'Archivieren'}
+                </button>
+              )}
           </div>
           <div className="round-badges">
             <span
@@ -108,8 +123,22 @@ function AdminRoundDetailsPage() {
             >
               {getStatusLabel(round.status)}
             </span>
+            {isOrphaned && (
+              <span className="round-badge round-orphaned">
+                Verwaist
+              </span>
+            )}
           </div>
         </header>
+        {isOrphaned && (
+          <div className="orphaned-round-notice">
+            <p>Dieser Runde ist derzeit keine Spielleitung zugeordnet.</p>
+            <p>
+              Vor dem Reaktivieren muss eine neue Spielleitung festgelegt
+              werden.
+            </p>
+          </div>
+        )}
         {isConfirmingArchive && (
           <section className="admin-round-archive-confirmation">
             <p>
@@ -146,6 +175,21 @@ function AdminRoundDetailsPage() {
             {archiveError}
           </p>
         )}
+        {isOrphaned && currentProfile.is_superadmin === true && (
+          <OrphanedRoundRecovery
+            roundId={round.id}
+            roundName={round.name}
+            currentUserId={currentProfile.id}
+            members={members}
+            areMembersLoading={areMembersLoading}
+            membersError={membersError}
+            onReloadMembers={reloadMembers}
+            onRecovered={() => {
+              reloadMembers()
+              reload()
+            }}
+          />
+        )}
         {(round.system || round.appointment) && (
           <dl className="round-detail-meta">
             {round.system && (
@@ -162,6 +206,20 @@ function AdminRoundDetailsPage() {
             )}
           </dl>
         )}
+        <dl className="round-detail-meta admin-round-game-master-meta">
+          <div>
+            <dt>Spielleitung</dt>
+            <dd>
+              {areMembersLoading
+                ? 'Wird geladen...'
+                : membersError
+                  ? 'Nicht verfügbar'
+                  : gameMaster
+                    ? `${gameMaster.profile.display_name} (@${gameMaster.profile.username})`
+                    : 'Keine Spielleitung zugeordnet'}
+            </dd>
+          </div>
+        </dl>
         <section
           className="round-detail-description"
           aria-labelledby="admin-round-description-title"

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { RoundDetails } from '../types/round'
+import type { AdminRoundDetails } from '../types/round'
 
 type AdminRoundDetailsState = {
   roundId: string | undefined
-  round: RoundDetails | null
+  round: AdminRoundDetails | null
   isLoading: boolean
   error: string | null
 }
@@ -48,11 +48,11 @@ export function useAdminRoundDetails(roundId: string | undefined) {
         const { data, error } = await supabase
           .from('rounds')
           .select(
-            'id, name, system, description, appointment, status, created_at, updated_at',
+            'id, name, system, description, appointment, status, orphaned_at, created_at, updated_at',
           )
           .eq('id', roundId)
           .maybeSingle()
-          .overrideTypes<RoundDetails, { merge: false }>()
+          .overrideTypes<AdminRoundDetails, { merge: false }>()
 
         if (!isCurrentRequest) {
           return

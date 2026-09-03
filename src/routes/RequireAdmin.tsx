@@ -1,6 +1,11 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useProfile } from '../hooks/useProfile'
+import type { Profile } from '../types/profile'
+
+export type AdminOutletContext = {
+  currentProfile: Profile
+}
 
 function RequireAdmin() {
   const { user, isLoading: isAuthLoading } = useAuth()
@@ -36,11 +41,15 @@ function RequireAdmin() {
   const isAdmin =
     profile?.role === 'admin' || profile?.is_superadmin === true
 
-  if (!isAdmin) {
+  if (!profile || !isAdmin) {
     return <Navigate to="/app" replace />
   }
 
-  return <Outlet />
+  const outletContext: AdminOutletContext = {
+    currentProfile: profile,
+  }
+
+  return <Outlet context={outletContext} />
 }
 
 export default RequireAdmin

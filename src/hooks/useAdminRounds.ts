@@ -7,6 +7,7 @@ import type {
 } from '../types/round'
 
 type AdminRoundQueryRow = RoundSummary & {
+  orphaned_at: string | null
   round_memberships: Array<{
     user_id: string
     profile: RoundMemberProfile
@@ -48,6 +49,7 @@ export function useAdminRounds() {
             system,
             appointment,
             status,
+            orphaned_at,
             created_at,
             updated_at,
             round_memberships (
@@ -82,6 +84,7 @@ export function useAdminRounds() {
           system: row.system,
           appointment: row.appointment,
           status: row.status,
+          orphaned_at: row.orphaned_at,
           created_at: row.created_at,
           updated_at: row.updated_at,
           gameMaster: row.round_memberships[0]?.profile ?? null,
