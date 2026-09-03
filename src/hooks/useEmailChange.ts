@@ -90,7 +90,7 @@ export function useEmailChange() {
         const { data, error } = await supabase.auth.updateUser(
           { email: normalizedEmail },
           {
-            emailRedirectTo: `${window.location.origin}/app/profile`,
+            emailRedirectTo: `${window.location.origin}/app/profile?email_change=confirmed`,
           },
         )
 

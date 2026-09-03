@@ -1,10 +1,24 @@
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useEmailChange } from '../hooks/useEmailChange'
 
 function EmailChangeForm() {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
+  const [hasAuthCallbackError] = useState(() => {
+    const callbackUrl = new URL(window.location.href)
+    const hashParams = new URLSearchParams(
+      callbackUrl.hash.slice(1),
+    )
+    const errorKeys = ['error', 'error_code', 'error_description']
+
+    return errorKeys.some(
+      (key) =>
+        callbackUrl.searchParams.has(key) || hashParams.has(key),
+    )
+  })
   const {
     isSubmitting,
     error,
@@ -18,6 +32,11 @@ function EmailChangeForm() {
   const normalizedEmail = newEmail.trim()
   const isUnchanged =
     user?.email?.trim().toLowerCase() === normalizedEmail.toLowerCase()
+  const isEmailChangeConfirmed =
+    searchParams.get('email_change') === 'confirmed' &&
+    !hasAuthCallbackError &&
+    Boolean(user?.email) &&
+    !user?.new_email?.trim()
   const isSubmitDisabled =
     !normalizedEmail || isUnchanged || isSubmitting
 
@@ -78,9 +97,12 @@ function EmailChangeForm() {
         )}
         {status === 'pending' && (
           <p className="profile-form-success" role="status">
-            E-Mail-Änderung angefordert. Bitte folge den
-            Bestätigungslinks, die an deine aktuelle und deine neue
-            E-Mail-Adresse gesendet wurden.
+            E-Mail-Änderung angefordert
+            <span className="email-change-pending">
+              Wir haben einen Bestätigungslink an deine neue
+              E-Mail-Adresse gesendet. Öffne den Link, um die Änderung
+              abzuschließen.
+            </span>
             {pendingEmail && (
               <span className="email-change-pending">
                 Ausstehende Adresse: {pendingEmail}
@@ -88,9 +110,12 @@ function EmailChangeForm() {
             )}
           </p>
         )}
-        {status === 'changed' && (
+        {isEmailChangeConfirmed && (
           <p className="profile-form-success" role="status">
-            Die E-Mail-Adresse wurde geändert.
+            E-Mail-Adresse geändert
+            <span className="email-change-pending">
+              Deine neue E-Mail-Adresse ist jetzt aktiv.
+            </span>
           </p>
         )}
       </form>
