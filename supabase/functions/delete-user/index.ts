@@ -1,5 +1,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
+const characterPortraitBucket = 'character-portraits'
+const portraitObjectName = 'portrait'
+const characterIdPageSize = 1000
+const portraitRemovalBatchSize = 1000
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -174,6 +179,66 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Dieser zweite Client existiert NUR auf dem Server.
+    // Der Service-Role-Key gelangt niemals in React.
+    const adminClient = createClient(
+      supabaseUrl,
+      serviceRoleKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      },
+    )
+
+    const ownedCharacterIds: string[] = []
+    let characterIdPageStart = 0
+
+    while (true) {
+      const { data: characterIdPage, error: characterIdError } =
+        await adminClient
+          .from('characters')
+          .select('id')
+          .eq('owner_user_id', userId)
+          .order('id', { ascending: true })
+          .range(
+            characterIdPageStart,
+            characterIdPageStart + characterIdPageSize - 1,
+          )
+
+      if (characterIdError) {
+        console.error(
+          'Loading owned character IDs failed:',
+          characterIdError,
+        )
+
+        return new Response(
+          JSON.stringify({
+            error: 'Account cleanup failed',
+          }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+      }
+
+      const currentCharacterIdPage = characterIdPage ?? []
+      ownedCharacterIds.push(
+        ...currentCharacterIdPage.map(({ id }) => id),
+      )
+
+      if (currentCharacterIdPage.length < characterIdPageSize) {
+        break
+      }
+
+      characterIdPageStart += characterIdPageSize
+    }
+
     // Die Edge Function prüft die Rollenmatrix vorab. Die DB-Funktion
     // validiert sie erneut und bleibt für die Löschvorbereitung autoritativ.
     const { error: prepareError } =
@@ -196,18 +261,44 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Dieser zweite Client existiert NUR auf dem Server.
-    // Der Service-Role-Key gelangt niemals in React.
-    const adminClient = createClient(
-      supabaseUrl,
-      serviceRoleKey,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      },
+    const portraitPaths = ownedCharacterIds.map(
+      (characterId) => `${characterId}/${portraitObjectName}`,
     )
+
+    for (
+      let batchStart = 0;
+      batchStart < portraitPaths.length;
+      batchStart += portraitRemovalBatchSize
+    ) {
+      const portraitPathBatch = portraitPaths.slice(
+        batchStart,
+        batchStart + portraitRemovalBatchSize,
+      )
+      const { error: portraitRemovalError } =
+        await adminClient.storage
+          .from(characterPortraitBucket)
+          .remove(portraitPathBatch)
+
+      if (portraitRemovalError) {
+        console.error(
+          'Removing owned character portraits failed:',
+          portraitRemovalError,
+        )
+
+        return new Response(
+          JSON.stringify({
+            error: 'Account cleanup failed',
+          }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+      }
+    }
 
     const { error: deleteError } =
       await adminClient.auth.admin.deleteUser(userId)
