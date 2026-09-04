@@ -41,6 +41,12 @@ function CharacterRoundAssignment({
   const assignedRound = rounds.find(
     ({ round_id }) => round_id === character.round_id,
   )
+  const isAssignedRoundUnavailable = Boolean(
+    character.round_id !== null &&
+      !isLoading &&
+      !roundsError &&
+      !assignedRound,
+  )
   const roundName = character.round_id
     ? assignedRound?.round.name ?? 'Zugeordnete Runde'
     : 'Keine Runde'
@@ -103,7 +109,19 @@ function CharacterRoundAssignment({
       <div className="character-round-summary">
         <div>
           <h2 id={`character-round-title-${character.id}`}>Runde</h2>
-          <p>{roundName}</p>
+          <p>
+            {isAssignedRoundUnavailable ? (
+              <>
+                Zugeordnete Runde derzeit nicht verfügbar
+                <span className="character-round-unavailable-hint">
+                  Dein Charakter bleibt dir erhalten und kann weiterhin
+                  bearbeitet werden.
+                </span>
+              </>
+            ) : (
+              roundName
+            )}
+          </p>
         </div>
         {character.round_id ? (
           <button
