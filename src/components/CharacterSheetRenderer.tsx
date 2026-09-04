@@ -14,6 +14,7 @@ type CharacterSheetRendererProps = CharacterSheetRendererBaseProps &
   (
     | {
         mode: 'view'
+        isReadOnly: boolean
         isCheckSubmitting: (fieldKey: string) => boolean
         onCheckChange: (fieldKey: string, checked: boolean) => void
       }
@@ -58,11 +59,13 @@ function getCharacterFieldsClassName(
 function ViewCharacterField({
   character,
   field,
+  isReadOnly,
   isCheckSubmitting,
   onCheckChange,
 }: {
   character: CharacterDetails
   field: CharacterTemplateField
+  isReadOnly: boolean
   isCheckSubmitting: (fieldKey: string) => boolean
   onCheckChange: (fieldKey: string, checked: boolean) => void
 }) {
@@ -83,7 +86,7 @@ function ViewCharacterField({
           aria-label={showLabel ? undefined : field.label}
           checked={isChecked}
           className="character-sheet-checkbox-input"
-          disabled={isSubmitting}
+          disabled={isReadOnly || isSubmitting}
           onChange={(event) =>
             onCheckChange(field.key, event.target.checked)
           }
@@ -224,6 +227,7 @@ function renderCharacterField(
     <ViewCharacterField
       character={props.character}
       field={field}
+      isReadOnly={props.isReadOnly}
       isCheckSubmitting={props.isCheckSubmitting}
       onCheckChange={props.onCheckChange}
     />

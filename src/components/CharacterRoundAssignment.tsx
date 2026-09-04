@@ -35,7 +35,8 @@ function CharacterRoundAssignment({
   const [selectedRoundId, setSelectedRoundId] = useState('')
 
   const availableRounds = rounds.filter(
-    ({ round }) => round.status === 'active' || round.status === 'paused',
+    ({ round }) =>
+      round.status !== 'archived' && round.locked_at === null,
   )
   const assignedRound = rounds.find(
     ({ round_id }) => round_id === character.round_id,

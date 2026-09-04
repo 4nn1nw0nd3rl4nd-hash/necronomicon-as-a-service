@@ -13,6 +13,9 @@ export type CharacterDetails = CharacterSummary & {
   data: Record<string, unknown>
   created_by_user_id: string | null
   deleted_at: string | null
+  round: {
+    locked_at: string | null
+  } | null
 }
 
 export type DeletedCharacterSummary = Pick<

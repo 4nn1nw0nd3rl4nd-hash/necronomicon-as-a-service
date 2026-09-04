@@ -59,7 +59,10 @@ export function useCharacter(characterId: string | undefined) {
             created_by_user_id,
             deleted_at,
             created_at,
-            updated_at
+            updated_at,
+            round:rounds (
+              locked_at
+            )
           `)
           .eq('id', characterId)
           .is('deleted_at', null)

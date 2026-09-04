@@ -131,15 +131,26 @@ function CharacterPage() {
   const [isPortraitRemoveConfirmationOpen, setIsPortraitRemoveConfirmationOpen] =
     useState(false)
 
-  const isEditing = editingCharacterId === character?.id
   const isCharacterOwner = Boolean(
     character && user && character.owner_user_id === user.id,
   )
+  const isRoundLocked = Boolean(
+    character?.round && character.round.locked_at !== null,
+  )
+  const canMutateCharacter = Boolean(
+    isCharacterOwner ||
+      (character &&
+        user &&
+        character.round !== null &&
+        character.round.locked_at === null),
+  )
+  const isEditing =
+    editingCharacterId === character?.id && canMutateCharacter
   const canManagePortrait = Boolean(
     character &&
       user &&
       character.deleted_at === null &&
-      (isCharacterOwner || character.round_id !== null),
+      canMutateCharacter,
   )
   const isPortraitMutating = isUploadingPortrait || isRemovingPortrait
   const isPortraitManagementVisible =
@@ -153,6 +164,7 @@ function CharacterPage() {
   const startEditing = () => {
     if (
       !character ||
+      !canMutateCharacter ||
       hasPendingCheckRequests ||
       isCopying ||
       isDeleting
@@ -265,7 +277,7 @@ function CharacterPage() {
     fieldKey: string,
     checked: boolean,
   ) => {
-    if (!character || isEditing) {
+    if (!character || !canMutateCharacter || isEditing) {
       return
     }
 
@@ -361,7 +373,7 @@ function CharacterPage() {
       return
     }
 
-    if (!character) {
+    if (!character || !canMutateCharacter) {
       return
     }
 
@@ -409,9 +421,10 @@ function CharacterPage() {
         <header className="character-detail-header">
           <div className="character-detail-title-row">
             <h1>{character.name}</h1>
-            {!isEditing && (template || isCharacterOwner) && (
+            {!isEditing &&
+              (isCharacterOwner || (template && canMutateCharacter)) && (
               <div className="character-detail-actions">
-                {template && (
+                {template && canMutateCharacter && (
                   <button
                     className="character-edit-button"
                     disabled={
@@ -455,6 +468,17 @@ function CharacterPage() {
             <span>Version {character.template_version}</span>
           </p>
         </header>
+
+        {!isCharacterOwner &&
+          character.round_id !== null &&
+          isRoundLocked && (
+            <div className="locked-round-notice">
+              <p>
+                Diese Runde wurde administrativ gesperrt. Der Charakter ist
+                derzeit nur lesbar.
+              </p>
+            </div>
+          )}
 
         <section
           aria-labelledby="character-portrait-title"
@@ -707,6 +731,7 @@ function CharacterPage() {
           ) : (
             <CharacterSheetRenderer
               character={character}
+              isReadOnly={!canMutateCharacter}
               isCheckSubmitting={isCheckSubmitting}
               mode="view"
               onCheckChange={(fieldKey, checked) =>
