@@ -50,16 +50,19 @@ export function useCharacterPortrait(characterId: string | undefined) {
 
       try {
         const portraitPath = getCharacterPortraitPath(characterId)
-        const { data: portraitExists, error: existsError } =
+        const { data: portraitFiles, error: listError } =
           await supabase.storage
             .from(characterPortraitBucket)
-            .exists(portraitPath)
+            .list(characterId, {
+              limit: 10,
+              search: 'portrait',
+            })
 
         if (!isRequestCurrent()) {
           return
         }
 
-        if (existsError) {
+        if (listError) {
           setState({
             characterId,
             portraitUrl: null,
@@ -68,6 +71,10 @@ export function useCharacterPortrait(characterId: string | undefined) {
           })
           return
         }
+
+        const portraitExists = portraitFiles.some(
+          ({ name }) => name === 'portrait',
+        )
 
         if (!portraitExists) {
           setState({
