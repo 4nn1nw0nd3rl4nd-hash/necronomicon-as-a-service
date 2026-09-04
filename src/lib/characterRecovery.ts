@@ -18,7 +18,7 @@ export function getCharacterRecoveryStatus(deletedAt: string) {
   const remainingMilliseconds =
     deletedAtTimestamp + recoveryPeriodInMilliseconds - Date.now()
 
-  if (remainingMilliseconds <= 0) {
+  if (remainingMilliseconds < 0) {
     return {
       isExpired: true,
       label: 'Wiederherstellungsfrist abgelaufen',
