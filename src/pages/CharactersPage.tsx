@@ -33,7 +33,11 @@ function CharactersPage() {
     error: trashError,
     reload: reloadTrash,
   } = useMyDeletedCharacters()
-  const { rounds: myRounds } = useMyRounds(user?.id)
+  const {
+    rounds: myRounds,
+    isLoading: areRoundsLoading,
+    error: roundsError,
+  } = useMyRounds(user?.id)
   const {
     isSubmitting: isRestoring,
     error: restoreError,
@@ -54,9 +58,26 @@ function CharactersPage() {
       return 'Keine Runde'
     }
 
+    const visibleRound = myRounds.find(
+      ({ round_id }) => round_id === roundId,
+    )
+
+    if (visibleRound) {
+      return visibleRound.round.name
+    }
+
+    if (areRoundsLoading || roundsError) {
+      return missingRoundLabel
+    }
+
     return (
-      myRounds.find(({ round_id }) => round_id === roundId)?.round.name ??
-      missingRoundLabel
+      <>
+        Zugeordnete Runde derzeit nicht verfügbar
+        <span className="character-round-unavailable-hint">
+          Dein Charakter bleibt dir erhalten und kann weiterhin bearbeitet
+          werden.
+        </span>
+      </>
     )
   }
 
