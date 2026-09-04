@@ -2272,6 +2272,61 @@ button {
   margin: 0;
 }
 
+.admin-round-lock-form {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-alt);
+}
+
+.admin-round-lock-form h2,
+.admin-round-lock-form p {
+  margin: 0;
+}
+
+.admin-round-lock-form textarea {
+  width: 100%;
+  min-height: 7rem;
+  padding: 0.75rem var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.admin-round-lock-form textarea:focus {
+  border-color: var(--color-accent);
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.admin-round-lock-form textarea:disabled {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.admin-round-lock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.admin-round-lock-actions .auth-submit {
+  width: auto;
+}
+
+.admin-round-lock-actions .auth-submit[data-submitting='true'] {
+  cursor: progress;
+}
+
 .orphaned-round-recovery-trigger,
 .orphaned-round-recovery-cancel,
 .orphaned-round-player-option,
