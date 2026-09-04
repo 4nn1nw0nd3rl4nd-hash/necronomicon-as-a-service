@@ -69,6 +69,8 @@ export function useRoundDetails(
               description,
               appointment,
               status,
+              locked_at,
+              locked_reason,
               created_at,
               updated_at
             )

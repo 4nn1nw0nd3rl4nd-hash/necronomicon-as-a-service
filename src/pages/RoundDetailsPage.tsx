@@ -66,6 +66,9 @@ function RoundDetailsPage() {
   const [playerPendingTransferId, setPlayerPendingTransferId] = useState<
     string | null
   >(null)
+  const isRoundLocked = round !== null && round.locked_at !== null
+  const canManageRound =
+    membershipRole === 'game_master' && !isRoundLocked
 
   const openRemoveConfirmation = (memberId: string) => {
     resetTransferGameMaster()
@@ -163,8 +166,7 @@ function RoundDetailsPage() {
                 >
                   {getRoleLabel(member.role)}
                 </span>
-                {membershipRole === 'game_master' &&
-                  member.role === 'player' && (
+                {canManageRound && member.role === 'player' && (
                     <>
                       <button
                         className="round-member-remove-trigger"
@@ -194,7 +196,7 @@ function RoundDetailsPage() {
                   )}
               </div>
             </div>
-            {playerPendingRemovalId === member.id && (
+            {canManageRound && playerPendingRemovalId === member.id && (
               <div className="round-member-remove-confirmation">
                 <p>
                   Spieler „{member.profile.display_name}“ wirklich aus
@@ -228,7 +230,7 @@ function RoundDetailsPage() {
                 </div>
               </div>
             )}
-            {playerPendingTransferId === member.id && (
+            {canManageRound && playerPendingTransferId === member.id && (
               <div className="round-member-transfer-confirmation">
                 <p>
                   Spielleitung an „{member.profile.display_name}“
@@ -293,7 +295,7 @@ function RoundDetailsPage() {
     )
   } else if (round) {
     const isEditing =
-      editingRoundId === round.id && membershipRole === 'game_master'
+      editingRoundId === round.id && canManageRound
 
     content = isEditing ? (
       <EditRoundForm
@@ -309,7 +311,7 @@ function RoundDetailsPage() {
         <header className="round-detail-header">
           <div className="round-detail-title-row">
             <h1>{round.name}</h1>
-            {membershipRole === 'game_master' && (
+            {canManageRound && (
               <button
                 className="round-edit-button"
                 type="button"
@@ -330,8 +332,20 @@ function RoundDetailsPage() {
             >
               {getStatusLabel(round.status)}
             </span>
+            {isRoundLocked && (
+              <span className="round-badge round-locked">Gesperrt</span>
+            )}
           </div>
         </header>
+        {isRoundLocked && (
+          <div className="locked-round-notice">
+            <p>Diese Runde wurde administrativ gesperrt.</p>
+            <p>
+              <strong>Grund:</strong>{' '}
+              {round.locked_reason?.trim() || 'Kein Grund angegeben.'}
+            </p>
+          </div>
+        )}
         {(round.system || round.appointment) && (
           <dl className="round-detail-meta">
             {round.system && (
@@ -386,6 +400,7 @@ function RoundDetailsPage() {
           onMembershipsReload={reloadMembers}
           roundId={round.id}
           roundStatus={round.status}
+          isRoundLocked={isRoundLocked}
         />
       )}
       {round && (
@@ -407,7 +422,7 @@ function RoundDetailsPage() {
               Spielleitung wurde übertragen.
             </p>
           )}
-          {membershipRole === 'game_master' && user && roundId && (
+          {canManageRound && user && roundId && (
             <AddRoundMemberSearch
               roundId={roundId}
               currentUserId={user.id}

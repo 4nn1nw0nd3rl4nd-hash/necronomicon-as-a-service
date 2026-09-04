@@ -8,6 +8,7 @@ export type RoundSummary = {
   system: string | null
   appointment: string | null
   status: RoundStatus
+  locked_at: string | null
   created_at: string
   updated_at: string
 }
@@ -28,6 +29,7 @@ export type CreateRoundInput = {
 
 export type RoundDetails = RoundSummary & {
   description: string | null
+  locked_reason: string | null
 }
 
 export type AdminRound = RoundSummary & {

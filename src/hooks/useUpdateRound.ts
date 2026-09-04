@@ -95,7 +95,7 @@ export function useUpdateRound() {
           })
           .eq('id', roundId)
           .select(
-            'id, name, system, description, appointment, status, created_at, updated_at',
+            'id, name, system, description, appointment, status, locked_at, locked_reason, created_at, updated_at',
           )
           .maybeSingle()
           .overrideTypes<RoundDetails, { merge: false }>()

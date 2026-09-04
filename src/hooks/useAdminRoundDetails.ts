@@ -48,7 +48,7 @@ export function useAdminRoundDetails(roundId: string | undefined) {
         const { data, error } = await supabase
           .from('rounds')
           .select(
-            'id, name, system, description, appointment, status, orphaned_at, created_at, updated_at',
+            'id, name, system, description, appointment, status, locked_at, locked_reason, orphaned_at, created_at, updated_at',
           )
           .eq('id', roundId)
           .maybeSingle()

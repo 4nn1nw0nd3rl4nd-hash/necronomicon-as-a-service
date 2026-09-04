@@ -48,6 +48,7 @@ export function useMyRounds(userId: string | undefined) {
               system,
               appointment,
               status,
+              locked_at,
               created_at,
               updated_at
             )

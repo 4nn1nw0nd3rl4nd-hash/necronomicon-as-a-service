@@ -1461,6 +1461,16 @@ button {
   color: #d9b8b0;
 }
 
+.round-locked {
+  border-color: #9b766e;
+  background-color: color-mix(
+    in srgb,
+    #9b766e 12%,
+    var(--color-surface-alt)
+  );
+  color: #d9b8b0;
+}
+
 .round-details {
   display: grid;
   gap: var(--space-md);
@@ -2243,6 +2253,20 @@ button {
   );
 }
 
+.locked-round-notice {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border-left: 3px solid #9b766e;
+  background-color: color-mix(
+    in srgb,
+    #9b766e 10%,
+    var(--color-surface-alt)
+  );
+}
+
+.locked-round-notice p,
 .orphaned-round-notice p,
 .orphaned-round-recovery p {
   margin: 0;

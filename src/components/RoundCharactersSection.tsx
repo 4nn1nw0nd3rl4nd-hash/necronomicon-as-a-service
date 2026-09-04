@@ -23,6 +23,7 @@ import type {
 type RoundCharactersSectionProps = {
   roundId: string
   roundStatus: RoundStatus
+  isRoundLocked: boolean
   membershipRole: RoundMembershipRole | null
   members: RoundMember[]
   currentUserId: string | undefined
@@ -74,6 +75,7 @@ function getActiveCharacterStatus(
 function RoundCharactersSection({
   roundId,
   roundStatus,
+  isRoundLocked,
   membershipRole,
   members,
   currentUserId,
@@ -416,7 +418,8 @@ function RoundCharactersSection({
           const isActiveCharacter =
             ownerMembership?.active_character_id === character.id
           const canSetActiveCharacter = Boolean(
-            character.owner_user_id &&
+            !isRoundLocked &&
+              character.owner_user_id &&
               ownerMembership &&
               !isActiveCharacter &&
               (isGameMaster ||
@@ -438,6 +441,7 @@ function RoundCharactersSection({
             assignmentCharacterId === character.id
           const canAssignCharacter =
             isGameMaster &&
+            !isRoundLocked &&
             roundStatus !== 'archived' &&
             character.owner_user_id === null
           const canCopyPreparedCharacter = canAssignCharacter
@@ -792,7 +796,9 @@ function RoundCharactersSection({
           const isRestoreOpen =
             preparedRestoreCharacterId === character.id
           const canRestore =
-            !recoveryStatus.isExpired && roundStatus !== 'archived'
+            !isRoundLocked &&
+            !recoveryStatus.isExpired &&
+            roundStatus !== 'archived'
 
           return (
             <li className="round-character-item" key={character.id}>
@@ -902,6 +908,7 @@ function RoundCharactersSection({
         </h2>
         {activeView === 'characters' &&
           isGameMaster &&
+          !isRoundLocked &&
           roundStatus !== 'archived' && (
           <Link
             className="round-characters-create-link"

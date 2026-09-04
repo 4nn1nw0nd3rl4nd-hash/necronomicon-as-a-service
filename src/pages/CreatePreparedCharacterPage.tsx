@@ -13,7 +13,10 @@ function CreatePreparedCharacterPage() {
   )
   const roundPath = roundId ? `/app/rounds/${roundId}` : '/app/rounds'
   const canCreatePreparedCharacter =
-    round && membershipRole === 'game_master' && round.status !== 'archived'
+    round &&
+    membershipRole === 'game_master' &&
+    round.status !== 'archived' &&
+    round.locked_at === null
 
   let content
 

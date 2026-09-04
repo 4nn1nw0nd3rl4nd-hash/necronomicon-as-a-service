@@ -69,7 +69,9 @@ function RoundsPage() {
             <Link
               className="round-card-link"
               to={`/app/rounds/${membership.round.id}`}
-              aria-label={`Rundendetails zu ${membership.round.name}`}
+              aria-label={`Rundendetails zu ${membership.round.name}${
+                membership.round.locked_at !== null ? ', gesperrt' : ''
+              }`}
             >
               <article className="round-card">
                 <header className="round-card-header">
@@ -83,6 +85,11 @@ function RoundsPage() {
                     >
                       {getStatusLabel(membership.round.status)}
                     </span>
+                    {membership.round.locked_at !== null && (
+                      <span className="round-badge round-locked">
+                        Gesperrt
+                      </span>
+                    )}
                   </div>
                 </header>
                 {(membership.round.system ||

@@ -83,6 +83,7 @@ function AdminRoundDetailsPage() {
   } else if (round) {
     const isArchived = round.status === 'archived'
     const isOrphaned = round.orphaned_at !== null
+    const isLocked = round.locked_at !== null
     const gameMaster = members.find(
       (member) => member.role === 'game_master',
     )
@@ -92,7 +93,8 @@ function AdminRoundDetailsPage() {
         <header className="round-detail-header">
           <div className="round-detail-title-row">
             <h1>{round.name}</h1>
-            {!isConfirmingArchive &&
+            {!isLocked &&
+              !isConfirmingArchive &&
               !(isArchived && isOrphaned) && (
                 <button
                   className={`admin-round-archive-trigger${
@@ -128,8 +130,20 @@ function AdminRoundDetailsPage() {
                 Verwaist
               </span>
             )}
+            {isLocked && (
+              <span className="round-badge round-locked">Gesperrt</span>
+            )}
           </div>
         </header>
+        {isLocked && (
+          <div className="locked-round-notice">
+            <p>Diese Runde wurde administrativ gesperrt.</p>
+            <p>
+              <strong>Grund:</strong>{' '}
+              {round.locked_reason?.trim() || 'Kein Grund angegeben.'}
+            </p>
+          </div>
+        )}
         {isOrphaned && (
           <div className="orphaned-round-notice">
             <p>Dieser Runde ist derzeit keine Spielleitung zugeordnet.</p>
@@ -139,7 +153,7 @@ function AdminRoundDetailsPage() {
             </p>
           </div>
         )}
-        {isConfirmingArchive && (
+        {!isLocked && isConfirmingArchive && (
           <section className="admin-round-archive-confirmation">
             <p>
               Runde „{round.name}“ wirklich archivieren?
@@ -170,7 +184,7 @@ function AdminRoundDetailsPage() {
             </div>
           </section>
         )}
-        {!isConfirmingArchive && archiveError && (
+        {!isLocked && !isConfirmingArchive && archiveError && (
           <p className="profile-form-error" role="alert">
             {archiveError}
           </p>

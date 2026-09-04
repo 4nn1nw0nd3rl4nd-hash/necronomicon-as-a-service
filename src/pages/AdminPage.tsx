@@ -477,6 +477,11 @@ function AdminPage() {
                                 Verwaist
                               </span>
                             )}
+                            {round.locked_at !== null && (
+                              <span className="round-badge round-locked">
+                                Gesperrt
+                              </span>
+                            )}
                           </div>
                         </header>
                         <dl className="admin-round-details">
