@@ -2018,10 +2018,27 @@ button {
 .character-copy-confirmation,
 .character-delete-confirmation {
   display: grid;
+  width: min(100%, 32rem);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   gap: var(--space-md);
   padding: var(--space-lg);
+  border: 1px solid var(--color-border);
   border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-md);
   background-color: var(--color-surface);
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 45%);
+}
+
+.character-confirmation-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-md);
+  background-color: rgb(0 0 0 / 70%);
 }
 
 .character-copy-confirmation h2,

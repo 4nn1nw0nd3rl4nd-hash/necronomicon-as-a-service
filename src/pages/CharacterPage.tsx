@@ -603,82 +603,105 @@ function CharacterPage() {
         </section>
 
         {isCharacterOwner && isCopyConfirmationOpen && !isEditing && (
-          <section
-            aria-labelledby="character-copy-title"
-            className="character-copy-confirmation"
-            id="character-copy-confirmation"
-          >
-            <h2 id="character-copy-title">Charakter kopieren</h2>
-            <p>
-              Eine unabhängige Kopie dieses Charakters wird erstellt. Die
-              Kopie ist zunächst keiner Runde zugeordnet.
-            </p>
-            {copyError && (
-              <p className="profile-form-error" role="alert">
-                {copyError}
+          <div className="character-confirmation-overlay">
+            <section
+              aria-labelledby="character-copy-title"
+              aria-modal="true"
+              className="character-copy-confirmation"
+              id="character-copy-confirmation"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !isCopying) {
+                  event.preventDefault()
+                  cancelCopyConfirmation()
+                }
+              }}
+              role="dialog"
+            >
+              <h2 id="character-copy-title">Charakter kopieren</h2>
+              <p>Möchtest du diesen Charakter kopieren?</p>
+              <p>
+                Eine unabhängige Kopie wird erstellt und ist zunächst keiner
+                Runde zugeordnet.
               </p>
-            )}
-            <div className="character-copy-actions">
-              <button
-                className="character-copy-confirm"
-                data-submitting={isCopying}
-                disabled={isCopying}
-                onClick={() => void confirmCopy()}
-                type="button"
-              >
-                {isCopying ? 'Wird kopiert...' : 'Kopieren'}
-              </button>
-              <button
-                className="character-copy-cancel"
-                disabled={isCopying}
-                onClick={cancelCopyConfirmation}
-                type="button"
-              >
-                Abbrechen
-              </button>
-            </div>
-          </section>
+              {copyError && (
+                <p className="profile-form-error" role="alert">
+                  {copyError}
+                </p>
+              )}
+              <div className="character-copy-actions">
+                <button
+                  autoFocus
+                  className="character-copy-cancel"
+                  disabled={isCopying}
+                  onClick={cancelCopyConfirmation}
+                  type="button"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  className="character-copy-confirm"
+                  data-submitting={isCopying}
+                  disabled={isCopying}
+                  onClick={() => void confirmCopy()}
+                  type="button"
+                >
+                  {isCopying ? 'Wird kopiert...' : 'Kopieren'}
+                </button>
+              </div>
+            </section>
+          </div>
         )}
 
         {isCharacterOwner && isDeleteConfirmationOpen && !isEditing && (
-          <section
-            aria-labelledby="character-delete-title"
-            className="character-delete-confirmation"
-            id="character-delete-confirmation"
-          >
-            <h2 id="character-delete-title">In den Papierkorb</h2>
-            <p>
-              Möchtest du diesen Charakter in den Papierkorb verschieben?
-            </p>
-            <p>
-              Er bleibt 14 Tage wiederherstellbar und wird nicht sofort
-              endgültig gelöscht.
-            </p>
-            {deleteError && (
-              <p className="profile-form-error" role="alert">
-                {deleteError}
+          <div className="character-confirmation-overlay">
+            <section
+              aria-labelledby="character-delete-title"
+              aria-modal="true"
+              className="character-delete-confirmation"
+              id="character-delete-confirmation"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !isDeleting) {
+                  event.preventDefault()
+                  cancelDeleteConfirmation()
+                }
+              }}
+              role="dialog"
+            >
+              <h2 id="character-delete-title">Charakter löschen</h2>
+              <p>
+                Möchtest du diesen Charakter in den Papierkorb verschieben?
               </p>
-            )}
-            <div className="character-delete-actions">
-              <button
-                className="character-delete-confirm"
-                data-submitting={isDeleting}
-                disabled={isDeleting}
-                onClick={() => void confirmDelete()}
-                type="button"
-              >
-                {isDeleting ? 'Wird verschoben...' : 'In den Papierkorb'}
-              </button>
-              <button
-                className="character-delete-cancel"
-                disabled={isDeleting}
-                onClick={cancelDeleteConfirmation}
-                type="button"
-              >
-                Abbrechen
-              </button>
-            </div>
-          </section>
+              <p>
+                Er bleibt 14 Tage wiederherstellbar und wird nicht sofort
+                endgültig gelöscht.
+              </p>
+              {deleteError && (
+                <p className="profile-form-error" role="alert">
+                  {deleteError}
+                </p>
+              )}
+              <div className="character-delete-actions">
+                <button
+                  autoFocus
+                  className="character-delete-cancel"
+                  disabled={isDeleting}
+                  onClick={cancelDeleteConfirmation}
+                  type="button"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  className="character-delete-confirm"
+                  data-submitting={isDeleting}
+                  disabled={isDeleting}
+                  onClick={() => void confirmDelete()}
+                  type="button"
+                >
+                  {isDeleting ? 'Wird verschoben...' : 'Löschen'}
+                </button>
+              </div>
+            </section>
+          </div>
         )}
 
         {user &&
