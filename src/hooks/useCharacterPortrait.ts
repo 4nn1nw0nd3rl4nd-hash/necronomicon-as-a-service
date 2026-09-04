@@ -59,22 +59,22 @@ export function useCharacterPortrait(characterId: string | undefined) {
           return
         }
 
-        if (!portraitExists) {
-          setState({
-            characterId,
-            portraitUrl: null,
-            isLoading: false,
-            error: null,
-          })
-          return
-        }
-
         if (existsError) {
           setState({
             characterId,
             portraitUrl: null,
             isLoading: false,
             error: loadError,
+          })
+          return
+        }
+
+        if (!portraitExists) {
+          setState({
+            characterId,
+            portraitUrl: null,
+            isLoading: false,
+            error: null,
           })
           return
         }
