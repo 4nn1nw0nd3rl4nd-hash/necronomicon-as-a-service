@@ -1,82 +1,105 @@
-# Necronomicon-as-a-Service
+# Necronomicon as a Service
 
-Necronomicon-as-a-Service ist eine Webplattform für die Organisation von Pen-&-Paper-Runden.
+Necronomicon as a Service ist eine Webplattform für die Organisation von Pen-&-Paper-Runden. Sie verbindet Account- und Profilverwaltung, Rundenorganisation und eine persönliche Charakterbibliothek mit serverseitig abgesicherten Rollen und Rechten.
 
-Phase 1 ist funktional abgeschlossen. Ein produktionsreifer Mail- und Account-Flow sowie die Charakterverwaltung folgen in späteren Schritten.
+## Aktueller Stand
 
-## Aktueller Funktionsumfang
+- Phase 1 ist abgeschlossen.
+- Phase 2 ist abgeschlossen.
+- Das Projekt wird auf eine Closed Beta vorbereitet.
+- Phase 3 hat noch nicht begonnen.
 
-### Accounts und Auth
+Der aktuelle Fokus liegt auf Stabilität, Bugfixes und der Bereinigung von Testdaten vor dem Start der Closed Beta.
 
-- Registrierung mit Benutzername, Anzeigename, E-Mail-Adresse und Passwort
+## Kernfunktionen
+
+### Auth und Profile
+
+- Supabase Auth mit Registrierung, E-Mail-Bestätigung sowie bewusstem anschließendem Login
 - Login und lokaler Logout
-- geschützte App-Routen und Weiterleitung nicht angemeldeter Nutzer
-- Weiterleitung angemeldeter Nutzer von Login und Registrierung in die App
-- Anzeige des eigenen Profils und der globalen Rolle
-- Änderung des eigenen Anzeigenamens
-- Änderung des Passworts mit Prüfung des aktuellen Passworts
-- technische UI und Datenlogik zum Ändern der E-Mail-Adresse
+- Passwort-Reset per E-Mail und Passwortänderung im eingeloggten Zustand
+- bestätigte Änderung der E-Mail-Adresse
+- Profile mit eindeutigem `username` und persönlichem `display_name`
+- geschützte App- und Adminrouten
+- administrative Accountlöschung mit serverseitigem Cleanup
 
-Ein produktionsreifer Mailflow ist noch nicht Bestandteil des aktuellen Stands. E-Mail-Verifikation, Secure Email Change, Passwort-Reset, Custom SMTP und die zugehörigen Redirects folgen bewusst in Phase 1.9.
+Eine Self-Service-Accountlöschung auf der Profilseite ist derzeit nicht implementiert. Accounts werden ausschließlich im vorgesehenen administrativen Rahmen gelöscht.
 
-### Runden
+### Runden und Mitglieder
 
-- Anzeige aller Runden, in denen der aktuelle Nutzer Mitglied ist
-- Erstellen einer Runde mit Name sowie optional System, Beschreibung und Termin
-- der Ersteller wird automatisch Spielleitung
-- Rundendetailseite mit Mitgliederliste
-- Bearbeitung von Name, System, Beschreibung, Termin und Status
-- Statuswerte `active`, `paused` und `archived`
+- Erstellen und Bearbeiten eigener Runden mit Name sowie optional System, Beschreibung und Termin
+- Rundenstatus `active`, `paused` und `archived`
+- getrennte Ansichten für laufende Runden und das Archiv
+- archivierte Runden bleiben als Historie erhalten und werden nicht gelöscht
+- Rundenrollen `game_master` und `player`
+- Spieler suchen, hinzufügen und entfernen
+- Spielleitung an ein bestehendes Rundenmitglied übertragen
 
-### Mitglieder und Spielleitung
+Eine administrative Rundensperre mit Grund ist vom normalen Rundenstatus getrennt. Bei einer Sperre wird die Runde für den GM read-only; Spieler können die gesperrte Runde nicht sehen. Persönliche Rechte eines Character-Owners bleiben davon unberührt.
 
-- registrierte Nutzer per Benutzername suchen und als Spieler hinzufügen
-- Spieler aus einer Runde entfernen
-- Mitglieder und deren Rundenrolle anzeigen
-- Spielleitung an einen vorhandenen Spieler übertragen
-- genau eine Spielleitung pro Runde im regulären Anwendungsablauf
+Wird der Account eines GM gelöscht, bleibt die Runde bestehen. Sie wird archiviert und als verwaist markiert; vorhandene Mitgliedschaften und Rundendaten bleiben erhalten. Ausschließlich der Superadmin kann einer solchen Runde eine neue Spielleitung zuweisen. Die spätere Reaktivierung erfolgt getrennt über den normalen Archiv-Lifecycle.
+
+### Charaktere
+
+- globale persönliche Charakterbibliothek, unabhängig von einzelnen Runden
+- persönliche Characters und vom GM vorbereitete Characters
+- Character Templates mit Versionierung
+- Zuweisung persönlicher und vorbereiteter Characters zu Runden
+- optionales Kopieren bei der Zuweisung eines vorbereiteten Characters
+- maximal ein aktiver Character je Spieler und Runde
+- Owner-Rechte auf den eigenen Character, auch bei einer gesperrten Runde
+- GM-Rechte auf Characters der eigenen Runde; bei administrativer Sperre nur lesend
+- Soft Delete mit persönlichem und GM-bezogenem Papierkorb
+- Wiederherstellung bis einschließlich 14 Tage nach dem Löschen
+- automatischer Purge nach Ablauf der Wiederherstellungsfrist
+- private Character-Portraits in Supabase Storage
+
+Globale Adminrechte verleihen keine Character-, Character-Portrait- oder sonstigen Contentrechte.
 
 ### Administration
 
-- zusätzlicher, geschützter Adminbereich für Admins und den Superadmin
-- Nutzerübersicht mit globalen Rollen
-- normale Nutzer zu Admins machen
-- andere Admins zu normalen Nutzern zurückstufen
-- Nutzer über die Supabase Edge Function `delete-user` löschen
-- Schutz des eigenen Adminaccounts und des Superadmins
-- Übersicht aller Runden, unabhängig von der eigenen Mitgliedschaft
-- fremde Runden vollständig ansehen und bearbeiten
+Normale Admins erhalten eine administrative Nutzer- und Rundenübersicht. Sie können Nutzer im vorgesehenen Rollenrahmen verwalten und administrative Archiv-/Lifecycle-Funktionen verwenden. Daraus entstehen keine automatischen GM-, Character- oder Portraitrechte.
 
-## Rollenmodell
+Der Superadmin ist ein besonders geschützter Admin. Er verwaltet das Admin-Tier, kann verwaiste Runden wiederherstellen und Runden administrativ sperren oder entsperren. Auch der Superadmin ist kein Super-GM und erhält keine zusätzlichen Character- oder Portrait-Contentrechte.
 
-### Globale Rollen
+Im Produktmodell ist genau ein permanenter geschützter Superadmin vorgesehen. Die Datenbank verhindert mehrere Superadmins und schützt den vorhandenen Superadmin vor Herabstufung und Löschung. Sie erzwingt technisch nicht, dass zu jedem Zeitpunkt mindestens ein Superadmin existiert.
 
-- `user`: normaler Nutzer
+## Rollen- und Sicherheitsmodell
+
+Globale Rollen:
+
+- `user`: regulärer Nutzer
 - `admin`: globaler Administrator
 - Superadmin: `role = 'admin'` und zusätzlich `is_superadmin = true`
 
-Der Superadmin ist dauerhaft geschützt. Er kann nicht zurückgestuft oder gelöscht werden, und es kann höchstens einen Superadmin geben.
-
-### Rollen innerhalb einer Runde
+Rollen innerhalb einer Runde:
 
 - `player`: Spieler der Runde
 - `game_master`: Spielleitung der Runde
 
-Die Rundenrolle ist unabhängig von der globalen Benutzerrolle. Spielleitung ist keine globale Rolle: Ein Admin kann beispielsweise Spieler einer Runde sein, und ein normaler Nutzer kann eine Runde leiten.
+Globale und rundenbezogene Rollen sind voneinander getrennt: Admin ist nicht automatisch GM, und der Superadmin ist kein Super-GM. Ein regulärer Nutzer kann eine Runde leiten, während ein Admin in einer Runde lediglich Spieler sein kann.
+
+Für die Sicherheit gilt:
+
+- UI-Gating dient der Benutzerführung und ist keine Sicherheitsgrenze.
+- Autorisierung und Datenzugriff werden serverseitig über RLS, RPCs und abgesicherte Edge Functions geprüft.
+- Service-Role- oder andere privilegierte Schlüssel gehören niemals ins Frontend.
+- Secrets und lokale Environment-Dateien dürfen nicht committed werden.
 
 ## Technik
-
-Kerntechnologien des aktuellen Projekts:
 
 - React 19
 - TypeScript 6
 - Vite 8
 - React Router 7
-- Supabase mit PostgreSQL, Authentication, Row Level Security, RPCs und Edge Functions
-- Vercel für das Frontend-Deployment
+- Supabase JS 2
+- Supabase mit PostgreSQL, Auth, Storage, Row Level Security und RPCs
 - Deno für Supabase Edge Functions
+- Vercel für das Frontend-Deployment
+- Node.js 24
+- ESLint 10
 
-Das Projekt verwendet Node.js 24. Die erwartete Version ist in `.nvmrc` und unter `engines` in `package.json` festgelegt.
+Die erwartete Node.js-Version ist in `.nvmrc` und unter `engines` in `package.json` festgelegt.
 
 ## Lokale Einrichtung
 
@@ -87,43 +110,31 @@ git clone <REPOSITORY_URL>
 cd necronomicon-as-a-service-test
 ```
 
-### 2. Node.js 24 verwenden
+### 2. Node.js und Abhängigkeiten
 
-Mit `nvm` beispielsweise:
+Mit `nvm` kann die erwartete Node.js-Version direkt verwendet werden:
 
 ```bash
 nvm use
-node --version
+npm install
 ```
 
-### 3. Abhängigkeiten installieren
+Für eine reproduzierbare Installation exakt aus `package-lock.json` ist alternativ möglich:
 
 ```bash
 npm ci
 ```
 
-### 4. Frontend-Umgebung konfigurieren
+### 3. Frontend-Umgebung konfigurieren
 
-Im Projektstamm lokal eine nicht versionierte `.env.local` anlegen:
+Im Projektstamm eine lokale, nicht versionierte `.env.local` anlegen:
 
 ```env
 VITE_SUPABASE_URL=<SUPABASE_URL>
 VITE_SUPABASE_PUBLISHABLE_KEY=<SUPABASE_PUBLISHABLE_KEY>
 ```
 
-Beide Variablen sind öffentliche Frontend-Konfiguration. Niemals einen Service-Role-Key, Secret Key oder andere privilegierte Zugangsdaten in einer `VITE_`-Variable ablegen.
-
-### 5. Supabase CLI verbinden
-
-```bash
-npx supabase login
-npx supabase link --project-ref <PROJECT_REF>
-npx supabase migration list
-```
-
-Das Linking ist eine lokale Einstellung. Auf einem neuen Rechner nicht automatisch `npx supabase db push` ausführen: Zuerst mit `migration list`, Git-Historie und Team prüfen, welche Migrationen im gemeinsamen Supabase-Projekt bereits angewendet wurden.
-
-### 6. Entwicklungsserver starten
+### 4. Entwicklungsserver starten
 
 ```bash
 npm run dev
@@ -131,12 +142,9 @@ npm run dev
 
 Vite stellt die Anwendung standardmäßig unter `http://localhost:5173` bereit.
 
-## Wichtige Befehle
+Weitere verfügbare Scripts:
 
 ```bash
-# Entwicklungsserver
-npm run dev
-
 # TypeScript prüfen und Produktions-Bundle bauen
 npm run build
 
@@ -145,95 +153,86 @@ npm run lint
 
 # Produktions-Bundle lokal ansehen
 npm run preview
-
-# Lokale und verknüpfte Migrationen vergleichen
-npx supabase migration list
 ```
 
-## Projektstruktur
+Das Verknüpfen der Supabase CLI mit einem Projekt ist für den normalen Frontend-Start nicht erforderlich. Es wird erst für Arbeiten an Datenbankmigrationen oder Edge Functions benötigt.
 
-```text
-src/
-├── auth/          Auth-Provider und Auth-Kontext
-├── components/    Formulare und wiederverwendbare UI
-├── hooks/         Daten- und Aktionslogik
-├── layouts/       App-Layout
-├── lib/           zentraler Supabase-Client und Hilfslogik
-├── pages/         öffentliche, App- und Adminseiten
-├── routes/        Guest-, Auth- und Admin-Guards
-└── types/         gemeinsame TypeScript-Datentypen
+## Environment-Variablen
 
-supabase/
-├── migrations/    versioniertes Schema, RLS-Policies und RPCs
-└── functions/
-    └── delete-user/  serverseitige Nutzerlöschung
-```
-
-Der Browser verwendet ausschließlich den zentralen Client in `src/lib/supabase.ts` mit dem Publishable Key.
-
-## Supabase- und Migrations-Workflow
-
-Schema, Constraints, Trigger, RLS-Policies und Datenbankfunktionen liegen als versionierte SQL-Migrationen unter `supabase/migrations/`.
-
-Für Datenbankänderungen gilt:
-
-1. Vor Beginn den aktuellen Git-Stand holen und offene Datenbankarbeiten im Team abstimmen.
-2. Eine neue Migration mit einem klar begrenzten Zweck erstellen.
-3. Migration und Auswirkungen prüfen, bei Bedarf zunächst `npx supabase db push --dry-run` verwenden.
-4. Nur eine Person führt die abgestimmte neue Migration beziehungsweise `db push` gegen das gemeinsame Projekt aus.
-5. Diese Person committet und pusht anschließend die Migration.
-6. Andere Entwickler holen sie über Git und prüfen den Stand mit `npx supabase migration list`.
-
-Nicht nach jedem `git pull` automatisch `db push` ausführen. Bereits remote angewendete gemeinsame Migrationen werden nicht erneut angewendet.
-
-Sicherheitsregeln:
-
-- Secrets und lokale `.env`-Dateien niemals committen.
-- Den Service-Role-Key niemals im Browser oder in `VITE_`-Variablen verwenden.
-- Privilegierte Abläufe gehören in abgesicherte Datenbankfunktionen oder Edge Functions.
-- Die Benutzeroberfläche ist nicht die Sicherheitsgrenze; RLS und serverseitige Prüfungen bleiben maßgeblich.
-
-## Zentrale Daten- und Sicherheitsabläufe
-
-- Neue Auth-Nutzer erhalten automatisch ein Profil in `public.profiles`.
-- `create_round` erstellt Runde und `game_master`-Membership gemeinsam.
-- `add_player_to_round`, `remove_player_from_round` und `transfer_game_master` prüfen Spielleitung beziehungsweise Adminstatus serverseitig.
-- `promote_user_to_admin` und `demote_admin_to_user` ändern ausschließlich die globale Rolle und schützen Selbständerung sowie Superadmin.
-- `delete-user` authentifiziert den Aufrufer, bereitet die Löschung über `prepare_user_deletion` vor und löscht den Auth-Nutzer serverseitig. Geleitete Runden werden zuvor an den Superadmin übertragen.
-- Direkte Rollenänderungen aus dem Browser bleiben durch Spaltenrechte, RLS und Datenbankprüfungen blockiert.
-
-## Deployment
-
-Das Frontend wird über Vercel deployt. Dort werden mindestens diese Environment-Variablen benötigt:
+Das Frontend benötigt ausschließlich:
 
 ```text
 VITE_SUPABASE_URL
 VITE_SUPABASE_PUBLISHABLE_KEY
 ```
 
-Die vorhandene `vercel.json` leitet Browser-Routen auf `index.html` um, sodass direkte Aufrufe von React-Router-Seiten funktionieren.
+Die Edge Functions verwenden abhängig vom jeweiligen Ablauf folgende ausschließlich serverseitige Variablen:
 
-Frontend-Deployment, Supabase-Datenbankänderungen und Edge-Function-Deployments sind getrennte Vorgänge:
+```text
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_SECRET_KEYS
+CHARACTER_PURGE_CRON_SECRET
+```
 
-- Ein Vercel-Deployment spielt keine Migrationen ein.
-- Ein Vercel-Deployment deployt keine Supabase Edge Functions.
-- Migrationen und Functions müssen bewusst über den jeweiligen Supabase-Workflow ausgerollt werden.
+Serverseitige Schlüssel und Secrets dürfen niemals als `VITE_`-Variable bereitgestellt oder in das Repository aufgenommen werden. Reale URLs, Schlüssel und Secret-Werte gehören nicht in diese Dokumentation.
 
-Die Edge Function zur Nutzerlöschung befindet sich unter `supabase/functions/delete-user/`. Ihre privilegierten Variablen werden ausschließlich serverseitig von Supabase bereitgestellt.
+## Supabase und Migrationen
 
-## Projektstatus und Roadmap
+Die Supabase-Bestandteile liegen unter:
 
-- **Phase 0 – Fundament, Datenbank und Sicherheit:** abgeschlossen
-- **Phase 1 – Auth, Profile, Runden, Mitglieder und Administration:** funktional abgeschlossen
-- **Phase 1.9 – Produktionsreifer Mail- und Account-Flow:** Custom SMTP, E-Mail-Verifikation, Secure Email Change und Passwort-Reset
-- **Phase 2 – Charaktere und Charakterbögen**
-- anschließend **Closed Beta**
-- spätere Phasen: Chat und Würfel, intelligente Charakterbögen/PDF, Journal sowie ein einfacher virtueller Spieltisch
+```text
+supabase/
+├── migrations/   versioniertes Schema, Constraints, RLS und RPCs
+└── functions/    Deno Edge Functions
+```
 
-Mögliche spätere Komfortverbesserungen sind unter anderem eine flexiblere Nutzersuche, Status-/Archivfilter und weiteres Code-Splitting. Diese Funktionen sind aktuell nicht vorhanden.
+Für Datenbank- und Function-Arbeit gelten folgende Regeln:
 
-## Bekannte Hinweise
+1. Datenbankänderungen werden ausschließlich als neue Migration unter `supabase/migrations/` angelegt.
+2. Vor einem `npx supabase db push` werden Migrationstand, Git-Historie und die im Team noch ausstehende Migration geprüft.
+3. Datenbankänderungen werden möglichst kompatibel und additiv ausgerollt.
+4. Benötigte Datenbankstrukturen werden zuerst bereitgestellt; anschließend folgt ein dazu kompatibles Frontend.
+5. Migrationen, Edge-Function-Deployments und Vercel-Deployments sind voneinander getrennte Schritte.
 
-Der Produktions-Bundle liegt derzeit knapp über Vites Warnschwelle von 500 kB. `npm run build` wird trotzdem erfolgreich abgeschlossen. Code-Splitting ist eine spätere Optimierung und aktuell kein Blocker für den Funktionsumfang von Phase 1.
+Hilfreich vor Datenbankarbeiten:
 
-Der produktive Mailflow ist noch nicht abgenommen. Vor einem öffentlichen Betrieb müssen insbesondere SMTP-Konfiguration, Auth-Redirect-URLs, E-Mail-Verifikation, Secure Email Change und Passwort-Reset im Rahmen von Phase 1.9 umgesetzt und getestet werden.
+```bash
+npx supabase login
+npx supabase link --project-ref <PROJECT_REF>
+npx supabase migration list
+```
+
+`db push` darf nicht unbesehen ausgeführt werden. Das Supabase-Linking ist eine lokale Einstellung und kein Bestandteil des Frontend-Builds.
+
+Die eingecheckte lokale Supabase-Konfiguration ist nicht mit der Produktionsumgebung identisch. Insbesondere reproduziert ein lokaler Supabase-Start die produktive Auth- und Mailkonfiguration nicht automatisch vollständig.
+
+## Deployment
+
+Der aktuelle einfache Produktionspfad besteht aus:
+
+- Git-Branch `main`
+- Vercel Production für das Frontend
+- Supabase Production für Datenbank, Auth, Storage und Edge Functions
+
+Die Rewrite-Regel in `vercel.json` leitet direkte Browseraufrufe von React-Router-Routen auf `index.html` weiter.
+
+Ein Vercel-Deployment führt keine Migrationen aus und deployt keine Supabase Edge Functions. Alle drei Deployment-Arten werden bewusst getrennt ausgeführt und geprüft.
+
+Eine separate Staging- oder Testumgebung besteht derzeit noch nicht. Nach der Closed Beta wird sie vor weiterer Feature-Entwicklung eingerichtet.
+
+## Closed Beta
+
+- Die Closed Beta findet mit einem kleinen Nutzerkreis statt.
+- Vor dem Start werden vorhandene Produktions-Testdaten bereinigt.
+- Ab Beginn der Beta wird Production nicht mehr als allgemeine Testspielwiese verwendet.
+- Während der Beta liegt der Schwerpunkt auf Bugfixes und Stabilität.
+
+Private Namen, Teilnehmerdaten und Testaccounts werden nicht im Repository dokumentiert.
+
+## Noch nicht implementiert
+
+- Chat und Würfelsystem
+- Journal
+- Spieltisch beziehungsweise Whiteboard
