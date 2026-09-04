@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import CreateRoundForm from '../components/CreateRoundForm'
@@ -6,6 +7,8 @@ import type {
   RoundMembershipRole,
   RoundStatus,
 } from '../types/round'
+
+type RoundsView = 'rounds' | 'archive'
 
 function getRoleLabel(role: RoundMembershipRole) {
   return role === 'game_master' ? 'Spielleitung' : 'Spieler'
@@ -24,6 +27,14 @@ function getStatusLabel(status: RoundStatus) {
 function RoundsPage() {
   const { user } = useAuth()
   const { rounds, isLoading, error, reload } = useMyRounds(user?.id)
+  const [view, setView] = useState<RoundsView>('rounds')
+  const regularRounds = rounds.filter(
+    ({ round }) => round.status !== 'archived',
+  )
+  const archivedRounds = rounds.filter(
+    ({ round }) => round.status === 'archived',
+  )
+  const visibleRounds = view === 'rounds' ? regularRounds : archivedRounds
 
   let content
 
@@ -42,16 +53,18 @@ function RoundsPage() {
         </button>
       </div>
     )
-  } else if (rounds.length === 0) {
+  } else if (visibleRounds.length === 0) {
     content = (
       <p className="rounds-state">
-        Du gehörst derzeit keiner Runde an.
+        {view === 'rounds'
+          ? 'Du hast derzeit keine aktiven oder pausierten Runden.'
+          : 'Du hast keine archivierten Runden.'}
       </p>
     )
   } else {
     content = (
       <ul className="rounds-list">
-        {rounds.map((membership) => (
+        {visibleRounds.map((membership) => (
           <li key={membership.round_id}>
             <Link
               className="round-card-link"
@@ -102,7 +115,27 @@ function RoundsPage() {
       <h1 className="rounds-title" id="rounds-title">
         Meine Runden
       </h1>
-      <CreateRoundForm onCreated={reload} />
+      <div className="rounds-view-switch" aria-label="Rundenbereiche">
+        <button
+          className="rounds-view-button"
+          type="button"
+          aria-pressed={view === 'rounds'}
+          data-active={view === 'rounds'}
+          onClick={() => setView('rounds')}
+        >
+          Meine Runden
+        </button>
+        <button
+          className="rounds-view-button"
+          type="button"
+          aria-pressed={view === 'archive'}
+          data-active={view === 'archive'}
+          onClick={() => setView('archive')}
+        >
+          Archiv
+        </button>
+      </div>
+      {view === 'rounds' && <CreateRoundForm onCreated={reload} />}
       {content}
     </section>
   )

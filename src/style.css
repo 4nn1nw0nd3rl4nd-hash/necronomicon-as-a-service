@@ -1158,7 +1158,15 @@ button {
   margin: var(--space-lg) 0;
 }
 
+.rounds-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-xl);
+}
+
 .character-section-button,
+.rounds-view-button,
 .character-restore-trigger,
 .character-restore-confirm,
 .character-restore-cancel {
@@ -1171,13 +1179,15 @@ button {
   cursor: pointer;
 }
 
-.character-section-button[data-active='true'] {
+.character-section-button[data-active='true'],
+.rounds-view-button[data-active='true'] {
   border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 650;
 }
 
 .character-section-button:hover,
+.rounds-view-button:hover,
 .character-restore-trigger:hover:not(:disabled),
 .character-restore-confirm:hover:not(:disabled),
 .character-restore-cancel:hover:not(:disabled) {
@@ -1185,6 +1195,7 @@ button {
 }
 
 .character-section-button:focus-visible,
+.rounds-view-button:focus-visible,
 .character-restore-trigger:focus-visible,
 .character-restore-confirm:focus-visible,
 .character-restore-cancel:focus-visible {
@@ -3201,6 +3212,7 @@ button {
   .character-detail-title-row,
   .character-detail-actions,
   .character-section-switch,
+  .rounds-view-switch,
   .character-restore-actions,
   .round-character-section-switch,
   .character-round-summary,
