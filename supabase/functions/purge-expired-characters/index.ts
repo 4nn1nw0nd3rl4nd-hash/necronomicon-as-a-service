@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const bucketName = 'character-portraits'
 const portraitObjectName = 'portrait'
+const storageListPageSize = 100
 
 type PurgeSummary = {
   candidates: number
@@ -80,6 +81,51 @@ Deno.serve(async (request) => {
     },
   })
 
+  async function inspectAllCharacterPortraitObjects(characterId: string) {
+    let offset = 0
+    let hasPortrait = false
+
+    while (true) {
+      const { data: folderEntries, error: listError } =
+        await serviceClient.storage.from(bucketName).list(characterId, {
+          limit: storageListPageSize,
+          offset,
+          sortBy: {
+            column: 'name',
+            order: 'asc',
+          },
+        })
+
+      if (listError) {
+        return {
+          status: 'list-error' as const,
+          error: listError,
+        }
+      }
+
+      const entries = folderEntries ?? []
+
+      if (entries.some(({ name }) => name !== portraitObjectName)) {
+        return {
+          status: 'unexpected-object' as const,
+        }
+      }
+
+      if (entries.some(({ name }) => name === portraitObjectName)) {
+        hasPortrait = true
+      }
+
+      if (entries.length < storageListPageSize) {
+        return {
+          status: 'safe' as const,
+          hasPortrait,
+        }
+      }
+
+      offset += storageListPageSize
+    }
+  }
+
   const { data: candidateData, error: candidateError } =
     await serviceClient.rpc('get_expired_character_ids_for_purge')
 
@@ -124,30 +170,21 @@ Deno.serve(async (request) => {
   }
 
   for (const characterId of candidateIds) {
-    const { data: folderEntries, error: listError } =
-      await serviceClient.storage.from(bucketName).list(characterId, {
-        limit: 100,
-        offset: 0,
-        sortBy: {
-          column: 'name',
-          order: 'asc',
-        },
-      })
+    const portraitFolderInspection =
+      await inspectAllCharacterPortraitObjects(characterId)
 
-    if (listError) {
+    if (portraitFolderInspection.status === 'list-error') {
       console.error(
         'Listing a character portrait failed',
         characterId,
-        listError.message,
+        portraitFolderInspection.error.message,
       )
       summary.failed += 1
       summary.failedIds.push(characterId)
       continue
     }
 
-    const entries = folderEntries ?? []
-
-    if (entries.some(({ name }) => name !== portraitObjectName)) {
+    if (portraitFolderInspection.status === 'unexpected-object') {
       console.error(
         'Unexpected files found in a character portrait folder',
         characterId,
@@ -157,7 +194,7 @@ Deno.serve(async (request) => {
       continue
     }
 
-    if (entries.length > 0) {
+    if (portraitFolderInspection.hasPortrait) {
       const portraitPaths = [`${characterId}/${portraitObjectName}`]
       const { error: removeError } = await serviceClient.storage
         .from(bucketName)
