@@ -2721,6 +2721,7 @@ button {
 
 .round-characters-list {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(
     auto-fit,
     minmax(min(13rem, 100%), 1fr)
@@ -2731,9 +2732,13 @@ button {
   list-style: none;
 }
 
+.round-character-active-overview ~ .round-characters-list,
+.round-character-player-active-status ~ .round-characters-list {
+  margin-top: var(--space-lg);
+}
+
 .round-character-link {
   display: block;
-  height: 100%;
   border-radius: var(--radius-sm);
   color: inherit;
   text-decoration: none;
@@ -2753,16 +2758,13 @@ button {
   min-width: 0;
   flex-direction: column;
   gap: var(--space-sm);
-}
-
-.round-character-item .round-character-link {
-  height: auto;
-  flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .round-character-card {
   display: grid;
-  height: 100%;
+  align-content: start;
+  align-items: start;
   min-width: 0;
   gap: var(--space-sm);
   padding: var(--space-md);
@@ -2958,10 +2960,28 @@ button {
 
 .round-character-assignment-panel {
   display: grid;
+  min-width: 0;
   gap: var(--space-md);
   padding: var(--space-md);
   border-left: 2px solid var(--color-accent);
   background-color: var(--color-surface-alt);
+}
+
+.round-character-assignment-panel .auth-field {
+  min-width: 0;
+}
+
+.round-character-assignment-panel select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.round-character-item button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .round-character-assignment-panel p {
