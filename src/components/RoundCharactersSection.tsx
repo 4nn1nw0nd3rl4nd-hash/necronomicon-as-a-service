@@ -395,7 +395,7 @@ function RoundCharactersSection({
     )
   } else if (characters.length === 0) {
     content = (
-      <p className="round-members-state">
+      <p className="round-members-state round-characters-empty-hint">
         {isGameMaster
           ? 'Dieser Runde sind noch keine Charaktere zugeordnet.'
           : 'Du hast dieser Runde noch keinen Charakter zugeordnet.'}

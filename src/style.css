@@ -2714,6 +2714,11 @@ button {
   margin: 0;
 }
 
+.round-characters-empty-hint {
+  margin-top: var(--space-md);
+  font-size: 0.875rem;
+}
+
 .round-characters-list {
   display: grid;
   grid-template-columns: repeat(
