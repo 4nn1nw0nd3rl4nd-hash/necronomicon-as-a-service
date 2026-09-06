@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useProfile } from '../hooks/useProfile'
 import { supabase } from '../lib/supabase'
+import { isProductionEnvironment } from '../lib/environment'
 
 function AppLayout() {
   const { user } = useAuth()
@@ -35,9 +36,17 @@ function AppLayout() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
+      <header
+        className="app-header"
+        data-environment={isProductionEnvironment ? undefined : 'staging'}
+      >
         <div className="app-header-inner">
-          <span className="app-brand">Necronomicon as a Service</span>
+          <span className="app-brand">
+            Necronomicon as a Service
+            {!isProductionEnvironment && (
+              <span className="app-environment-badge">TESTSYSTEM</span>
+            )}
+          </span>
           <div className="app-header-controls">
             <nav className="app-nav" aria-label="App-Navigation">
               <NavLink

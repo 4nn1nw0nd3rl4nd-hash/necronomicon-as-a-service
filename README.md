@@ -132,7 +132,21 @@ Im Projektstamm eine lokale, nicht versionierte `.env.local` anlegen:
 ```env
 VITE_SUPABASE_URL=<SUPABASE_URL>
 VITE_SUPABASE_PUBLISHABLE_KEY=<SUPABASE_PUBLISHABLE_KEY>
+VITE_APP_ENV=staging
 ```
+
+Die Umgebungskennzeichnung wird zentral in `src/lib/environment.ts` aus
+`import.meta.env.VITE_APP_ENV` abgeleitet. Nur der exakte Wert `production`
+blendet das Badge `TESTSYSTEM` aus; `staging`, fehlende und unbekannte Werte
+zeigen es sicherheitshalber an.
+
+Lokal bleibt `VITE_APP_ENV=staging` in `.env.local` unabhängig vom Git-Branch.
+In Vercel wird `VITE_APP_ENV=staging` für Staging/Preview und
+`VITE_APP_ENV=production` für Production in der jeweiligen Environment-Konfiguration
+gesetzt. Vite übernimmt den Wert beim Start beziehungsweise Build: Nach einer
+Änderung den Entwicklungsserver neu starten beziehungsweise das Deployment neu bauen.
+Beim Wechsel oder Merge zwischen `staging` und `main` müssen keine Dateien
+manuell angepasst, gestasht oder vom Merge ausgeschlossen werden.
 
 ### 4. Entwicklungsserver starten
 
@@ -164,6 +178,7 @@ Das Frontend benötigt ausschließlich:
 ```text
 VITE_SUPABASE_URL
 VITE_SUPABASE_PUBLISHABLE_KEY
+VITE_APP_ENV
 ```
 
 Die Edge Functions verwenden abhängig vom jeweiligen Ablauf folgende ausschließlich serverseitige Variablen:

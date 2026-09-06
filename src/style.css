@@ -324,6 +324,28 @@ button {
   gap: var(--space-md);
 }
 
+.app-header[data-environment='staging'] {
+  border-bottom-color: #bfa365;
+}
+
+.app-header[data-environment='staging'] .app-header-inner {
+  flex-wrap: wrap;
+}
+
+.app-environment-badge {
+  display: block;
+  width: fit-content;
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid #bfa365;
+  border-radius: var(--radius-sm);
+  background-color: #3b321f;
+  color: #f2d58f;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
 .app-nav {
   display: flex;
   align-items: center;
