@@ -83,14 +83,21 @@ function AppLayout() {
                 Profil
               </NavLink>
             </nav>
-            <button
-              className="app-logout"
-              type="button"
-              onClick={handleLogout}
-              disabled={isSigningOut}
-            >
-              {isSigningOut ? 'Ausloggen...' : 'Ausloggen'}
-            </button>
+            <div className="app-account-controls">
+              <button
+                className="app-logout"
+                type="button"
+                onClick={handleLogout}
+                disabled={isSigningOut}
+              >
+                {isSigningOut ? 'Ausloggen...' : 'Ausloggen'}
+              </button>
+              {user && profile?.id === user.id && profile.username && (
+                <p className="app-account-identity">
+                  Eingeloggt als: <strong>{profile.username}</strong>
+                </p>
+              )}
+            </div>
           </div>
         </div>
         {logoutError && (

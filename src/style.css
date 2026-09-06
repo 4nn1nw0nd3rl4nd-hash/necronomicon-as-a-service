@@ -301,6 +301,7 @@ button {
 
 .app-header-inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
@@ -320,6 +321,8 @@ button {
 
 .app-header-controls {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   gap: var(--space-md);
 }
@@ -328,8 +331,29 @@ button {
   border-bottom-color: #bfa365;
 }
 
-.app-header[data-environment='staging'] .app-header-inner {
-  flex-wrap: wrap;
+.app-account-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-account-controls .app-logout {
+  flex-shrink: 0;
+}
+
+.app-account-identity {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.app-account-identity strong {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .app-environment-badge {
@@ -3293,6 +3317,13 @@ button {
   .app-header-controls {
     align-items: flex-start;
     flex-direction: column;
+    width: 100%;
+  }
+
+  .app-account-controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
     width: 100%;
   }
 
