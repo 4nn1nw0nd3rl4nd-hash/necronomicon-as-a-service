@@ -176,8 +176,14 @@ function ProfilePage() {
             Kontosicherheit
           </h2>
           <div className="profile-security-forms">
-            <EmailChangeForm />
-            <PasswordChangeForm />
+            <details className="profile-security-disclosure">
+              <summary>E-Mail-Adresse ändern</summary>
+              <EmailChangeForm />
+            </details>
+            <details className="profile-security-disclosure">
+              <summary>Passwort ändern</summary>
+              <PasswordChangeForm />
+            </details>
           </div>
         </section>
       </div>

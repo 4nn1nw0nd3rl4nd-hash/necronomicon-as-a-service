@@ -1341,7 +1341,8 @@ button {
   max-width: none;
 }
 
-.rounds-create-disclosure > summary {
+.rounds-create-disclosure > summary,
+.profile-security-disclosure > summary {
   padding: var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1351,17 +1352,21 @@ button {
   overflow-wrap: anywhere;
 }
 
-.rounds-create-disclosure > summary::marker {
+.rounds-create-disclosure > summary::marker,
+.profile-security-disclosure > summary::marker {
   color: var(--color-accent);
 }
 
 .rounds-create-disclosure > summary:hover,
-.rounds-create-disclosure[open] > summary {
+.rounds-create-disclosure[open] > summary,
+.profile-security-disclosure > summary:hover,
+.profile-security-disclosure[open] > summary {
   color: var(--color-text);
   border-color: var(--color-accent);
 }
 
-.rounds-create-disclosure > summary:focus-visible {
+.rounds-create-disclosure > summary:focus-visible,
+.profile-security-disclosure > summary:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-xs);
 }
@@ -1372,6 +1377,18 @@ button {
 
 .rounds-create-disclosure .auth-field {
   min-width: 0;
+}
+
+.profile-security-disclosure,
+.profile-security-disclosure > summary,
+.profile-security-disclosure > .profile-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.profile-security-disclosure > .profile-card {
+  margin-top: var(--space-sm);
 }
 
 .create-round-card {
