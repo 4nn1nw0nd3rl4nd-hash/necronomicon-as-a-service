@@ -5,6 +5,7 @@ import type { CreateRoundInput } from '../types/round'
 
 type CreateRoundFormProps = {
   onCreated: () => void
+  onError?: () => void
 }
 
 const initialFields: CreateRoundInput = {
@@ -14,7 +15,7 @@ const initialFields: CreateRoundInput = {
   appointment: '',
 }
 
-function CreateRoundForm({ onCreated }: CreateRoundFormProps) {
+function CreateRoundForm({ onCreated, onError }: CreateRoundFormProps) {
   const {
     isSubmitting,
     error,
@@ -50,6 +51,8 @@ function CreateRoundForm({ onCreated }: CreateRoundFormProps) {
     if (roundId) {
       setFields(initialFields)
       onCreated()
+    } else {
+      onError?.()
     }
   }
 

@@ -1326,6 +1326,54 @@ button {
   overflow-wrap: anywhere;
 }
 
+.rounds-create-disclosure {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 42rem;
+  min-width: 0;
+  margin-block: var(--space-lg);
+}
+
+.rounds-create-disclosure > summary,
+.rounds-create-disclosure > .create-round-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+}
+
+.rounds-create-disclosure > summary {
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.rounds-create-disclosure > summary::marker {
+  color: var(--color-accent);
+}
+
+.rounds-create-disclosure > summary:hover,
+.rounds-create-disclosure[open] > summary {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.rounds-create-disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-xs);
+}
+
+.rounds-create-disclosure > .create-round-card {
+  margin: var(--space-sm) 0 0;
+}
+
+.rounds-create-disclosure .auth-field {
+  min-width: 0;
+}
+
 .create-round-card {
   width: 100%;
   max-width: 42rem;

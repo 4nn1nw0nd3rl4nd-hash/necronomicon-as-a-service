@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import CreateRoundForm from '../components/CreateRoundForm'
@@ -28,6 +28,7 @@ function RoundsPage() {
   const { user } = useAuth()
   const { rounds, isLoading, error, reload } = useMyRounds(user?.id)
   const [view, setView] = useState<RoundsView>('rounds')
+  const createDisclosureRef = useRef<HTMLDetailsElement>(null)
   const regularRounds = rounds.filter(
     ({ round }) => round.status !== 'archived',
   )
@@ -142,7 +143,17 @@ function RoundsPage() {
           Archiv
         </button>
       </div>
-      {view === 'rounds' && <CreateRoundForm onCreated={reload} />}
+      <details className="rounds-create-disclosure" ref={createDisclosureRef}>
+        <summary>Neue Runde anlegen</summary>
+        <CreateRoundForm
+          onCreated={reload}
+          onError={() => {
+            if (createDisclosureRef.current) {
+              createDisclosureRef.current.open = true
+            }
+          }}
+        />
+      </details>
       {content}
     </section>
   )
