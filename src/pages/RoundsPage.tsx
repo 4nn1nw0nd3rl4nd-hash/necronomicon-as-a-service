@@ -143,7 +143,11 @@ function RoundsPage() {
           Archiv
         </button>
       </div>
-      <details className="rounds-create-disclosure" ref={createDisclosureRef}>
+      <details
+        className="rounds-create-disclosure"
+        ref={createDisclosureRef}
+        hidden={view === 'archive'}
+      >
         <summary>Neue Runde anlegen</summary>
         <CreateRoundForm
           onCreated={reload}
