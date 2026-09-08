@@ -1,3 +1,4 @@
+import { accountRoleLabels } from '../lib/accountRoleLabels'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { supabase } from '../lib/supabase'
@@ -19,11 +20,11 @@ const initialState: AdminRoleActionState = {
 const sessionError =
   'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.'
 const promoteError =
-  'Der Nutzer konnte nicht zum Admin gemacht werden. Bitte versuche es erneut.'
-const promoteSuccess = 'Nutzer wurde zum Admin gemacht.'
+  `Der Nutzer konnte nicht zum ${accountRoleLabels.admin} gemacht werden. Bitte versuche es erneut.`
+const promoteSuccess = `Nutzer wurde zum ${accountRoleLabels.admin} gemacht.`
 const demoteError =
-  'Der Admin konnte nicht zum Nutzer zurückgestuft werden. Bitte versuche es erneut.'
-const demoteSuccess = 'Admin wurde zum Nutzer zurückgestuft.'
+  `Die Rolle konnte nicht von „${accountRoleLabels.admin}“ auf „${accountRoleLabels.user}“ zurückgestuft werden. Bitte versuche es erneut.`
+const demoteSuccess = `Die Rolle wurde von „${accountRoleLabels.admin}“ auf „${accountRoleLabels.user}“ zurückgestuft.`
 
 export function useAdminRoleActions() {
   const { session, user } = useAuth()

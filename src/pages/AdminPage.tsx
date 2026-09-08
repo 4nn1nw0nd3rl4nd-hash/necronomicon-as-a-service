@@ -1,3 +1,4 @@
+import { accountRoleLabels, getAccountRoleLabel } from '../lib/accountRoleLabels'
 import { useState } from 'react'
 import {
   Link,
@@ -209,12 +210,7 @@ function AdminPage() {
                     : user.role === 'admin'
                       ? 'admin'
                       : 'user'
-                  const roleLabel =
-                    role === 'superadmin'
-                      ? 'Superadmin'
-                      : role === 'admin'
-                        ? 'Admin'
-                        : 'Nutzer'
+                  const roleLabel = getAccountRoleLabel(user)
                   const isOwnAccount =
                     user.id === currentProfile.id
                   const isTargetSuperadmin =
@@ -280,7 +276,7 @@ function AdminPage() {
                               openPromotionConfirmation(user.id)
                             }
                           >
-                            Zum Admin machen
+                            Zum {accountRoleLabels.admin} machen
                           </button>
                         )}
                         {canDemote && !isDemotionPending && (
@@ -292,7 +288,7 @@ function AdminPage() {
                               openDemotionConfirmation(user.id)
                             }
                           >
-                            Zum Nutzer zurückstufen
+                            Auf „{accountRoleLabels.user}“ zurückstufen
                           </button>
                         )}
                         {canDelete && !isDeletionConfirmationOpen && (
@@ -315,8 +311,8 @@ function AdminPage() {
                           <p>
                             Nutzer „
                             {user.display_name ?? user.username}“ wirklich
-                            zum Admin machen? Der Nutzer erhält dadurch
-                            globale Adminrechte.
+                            zum {accountRoleLabels.admin} machen? Der Nutzer erhält dadurch
+                            globale Verwaltungsrechte.
                           </p>
                           <div className="admin-demote-confirmation-actions">
                             <button
@@ -335,7 +331,7 @@ function AdminPage() {
                               {isRoleSubmitting &&
                               activeUserId === user.id
                                 ? 'Wird geändert...'
-                                : 'Zum Admin machen'}
+                                : `Zum ${accountRoleLabels.admin} machen`}
                             </button>
                             <button
                               type="button"
@@ -353,10 +349,10 @@ function AdminPage() {
                       {canDemote && isDemotionPending && (
                         <div className="admin-demote-confirmation">
                           <p>
-                            Admin „
+                            {accountRoleLabels.admin} „
                             {user.display_name ?? user.username}“ wirklich
-                            zum Nutzer zurückstufen? Dadurch werden die
-                            globalen Adminrechte entzogen.
+                            auf die Rolle „{accountRoleLabels.user}“ zurückstufen? Dadurch werden die
+                            globalen Verwaltungsrechte entzogen.
                           </p>
                           <div className="admin-demote-confirmation-actions">
                             <button
@@ -398,7 +394,7 @@ function AdminPage() {
                             löschen? Diese Aktion kann nicht rückgängig
                             gemacht werden. Von diesem Nutzer geleitete
                             Runden bleiben erhalten, werden archiviert und
-                            als verwaist markiert. Der Superadmin kann später
+                            als verwaist markiert. Eine Person mit der Rolle „{accountRoleLabels.superadmin}“ kann später
                             eine neue Spielleitung festlegen.
                           </p>
                           <div className="admin-delete-confirmation-actions">

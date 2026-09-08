@@ -4,15 +4,7 @@ import { useAuth } from '../auth/useAuth'
 import EmailChangeForm from '../components/EmailChangeForm'
 import PasswordChangeForm from '../components/PasswordChangeForm'
 import { useProfile } from '../hooks/useProfile'
-import type { Profile } from '../types/profile'
-
-function getRoleLabel(profile: Profile) {
-  if (profile.is_superadmin) {
-    return 'Superadmin'
-  }
-
-  return profile.role === 'admin' ? 'Admin' : 'Nutzer'
-}
+import { getAccountRoleLabel } from '../lib/accountRoleLabels'
 
 function ProfilePage() {
   const { user } = useAuth()
@@ -159,7 +151,7 @@ function ProfilePage() {
               <dt>Rolle</dt>
               <dd>
                 <span className="profile-role">
-                  {getRoleLabel(profile)}
+                  {getAccountRoleLabel(profile)}
                 </span>
               </dd>
             </div>

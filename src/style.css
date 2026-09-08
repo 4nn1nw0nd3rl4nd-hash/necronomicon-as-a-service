@@ -708,6 +708,8 @@ button {
 
 .admin-user-controls {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-sm);
@@ -775,7 +777,11 @@ button {
 }
 
 .admin-demote-confirmation {
-  flex: 1 0 100%;
+  flex: 1 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: var(--space-md);
   border-left: 3px solid var(--color-border);
   background-color: var(--color-surface-alt);
@@ -800,7 +806,11 @@ button {
 }
 
 .admin-delete-confirmation {
-  flex: 1 0 100%;
+  flex: 1 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: var(--space-md);
   border-left: 3px solid #9b766e;
   background-color: color-mix(
@@ -3684,4 +3694,13 @@ button {
 
 .app-menu-panel .nav-link {
   min-height: 44px;
+}
+
+.admin-promote-button,
+.admin-demote-button,
+.admin-demote-confirm {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

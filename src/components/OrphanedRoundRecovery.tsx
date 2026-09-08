@@ -1,3 +1,4 @@
+import { accountRoleLabels } from '../lib/accountRoleLabels'
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { useProfileSearch } from '../hooks/useProfileSearch'
@@ -63,9 +64,9 @@ function OrphanedRoundRecovery({
   const searchedCandidateNotice = !result
     ? null
     : result.id === currentUserId
-      ? 'Der Superadmin kann nicht als Spielleitung eingesetzt werden.'
+      ? `Eine Person mit der Rolle „${accountRoleLabels.superadmin}“ kann nicht als Spielleitung eingesetzt werden.`
       : result.is_superadmin
-        ? 'Ein Superadmin kann nicht als Spielleitung eingesetzt werden.'
+        ? `Eine Person mit der Rolle „${accountRoleLabels.superadmin}“ kann nicht als Spielleitung eingesetzt werden.`
         : result.deletion_pending_at !== null
           ? 'Für diesen Nutzer ist bereits eine Löschung vorbereitet.'
           : searchedMembership?.role === 'game_master'
