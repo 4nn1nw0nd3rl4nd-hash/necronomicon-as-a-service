@@ -17,8 +17,11 @@ function harness(supabase, globals = {}, overrides = {}) {
   const react = {
     useState(initial) {
       const i = cursor++
-      if (!slots[i]) slots[i] = { value: typeof initial === 'function' ? initial() : initial }
-      return [slots[i].value, value => { slots[i].value = typeof value === 'function' ? value(slots[i].value) : value }]
+      if (!slots[i]) slots[i] = {
+        value: typeof initial === 'function' ? initial() : initial,
+        set: value => { slots[i].value = typeof value === 'function' ? value(slots[i].value) : value },
+      }
+      return [slots[i].value, slots[i].set]
     },
     useRef(initial) { const i=cursor++; return slots[i] ??= { current: initial } },
     useId() { return react.useRef(`test-${instanceId}-${cursor}`).current },
@@ -75,11 +78,15 @@ function harness(supabase, globals = {}, overrides = {}) {
 function backend() {
   const requests=[], channels=[], removals=[]
   const api={
+    rpc(name,args) {
+      return new Promise((resolve,reject)=>requests.push({rpc:name,args,resolve,reject}))
+    },
     from(table) {
       const query={ table }
       let resolve,reject
       const promise=new Promise((yes,no)=>{resolve=yes;reject=no})
       const chain={
+        update(values){query.values=values;return chain},
         select(fields){ query.fields=fields; return chain },
         eq(key,value){query[key]=value;return chain},
         order(){return chain},
@@ -518,3 +525,109 @@ test('round unlock event refreshes previously empty memberships and restores the
   assert.equal(b.requests[4].table,'characters')
   h.cleanup()
 })
+
+for (const [name, action, input] of [
+  ['useAddRoundPlayer', 'addPlayer', [round, other]],
+  ['useRemoveRoundPlayer', 'removePlayer', [round, other]],
+  ['useTransferGameMaster', 'transferGameMaster', [round, other]],
+  ['useUpdateRound', 'updateRound', [round, {name:'Runde',system:'',description:'',appointment:'',status:'active'}]],
+]) {
+  test(`${name}: success expires after 4s, new actions restart/cancel the timer, errors persist`, async()=>{
+    const b=backend(), clock=browserClock(), h=harness(b.api,clock,{
+      '../auth/useAuth':{useAuth:()=>({session:{},user:{id:user}})},
+    })
+    const hook=h.load(`src/hooks/${name}.ts`)[name]
+    h.render(hook,[])
+    const succeed=async()=>{
+      const pending=h.render()[action](...input)
+      b.requests.at(-1).resolve({data:roundData().round,error:null})
+      await pending
+      assert.equal(h.render().isSuccess,true)
+      assert.equal(clock.pending(),1)
+    }
+    await succeed()
+    clock.advance(3999);assert.equal(h.render().isSuccess,true)
+    clock.advance(1);assert.equal(h.render().isSuccess,false)
+    assert.equal(clock.pending(),0)
+    await succeed();clock.advance(3000)
+    // No intermediate render: even batched success -> submitting -> success
+    // must give the new success its full duration.
+    await succeed();clock.advance(1000);assert.equal(h.render().isSuccess,true)
+    clock.advance(2999);assert.equal(h.render().isSuccess,true)
+    clock.advance(1);assert.equal(h.render().isSuccess,false)
+    await succeed();clock.advance(3000)
+    const failed=h.render()[action](...input)
+    assert.equal(h.render().isSuccess,false);assert.equal(clock.pending(),0)
+    assert.equal(h.render().isSubmitting,true)
+    b.requests.at(-1).resolve({data:null,error:{message:'failure'}});await failed
+    const error=h.render().error;assert.ok(error)
+    clock.advance(10000);assert.equal(h.render().error,error)
+    await succeed();h.render().resetState();h.render();assert.equal(clock.pending(),0)
+    await succeed();h.replayEffects();assert.equal(clock.pending(),1)
+    h.cleanup();assert.equal(clock.pending(),0)
+    clock.advance(10000)
+  })
+}
+
+test('success timer cleanup prevents state writes after unmount; stale expiry cannot clear a newer error',()=>{
+  const clock=browserClock(), h=harness({},clock)
+  const {useSuccessNoticeTimeout:hook}=h.load('src/hooks/useSuccessNoticeTimeout.ts')
+  let state={isSuccess:true,error:null}, writes=0
+  const setState=update=>{writes++;state=update(state)}
+  h.render(hook,[state,setState]);assert.equal(clock.pending(),1)
+  h.cleanup();clock.advance(10000);assert.equal(writes,0)
+  const next=harness({},clock), nextHook=next.load('src/hooks/useSuccessNoticeTimeout.ts').useSuccessNoticeTimeout
+  next.render(nextHook,[state,setState])
+  // A state change may precede the next effect cleanup.
+  state={isSuccess:false,error:'New request failed'}
+  clock.advance(4000);assert.equal(state.error,'New request failed');assert.equal(state.isSuccess,false)
+  next.cleanup()
+})
+
+for(const role of ['player','game_master']) {
+  test(`rounds UPDATE adopts archive/unarchive in visible ${role} page without focus, reload or channel rebuild`,async()=>{
+    const b=backend(),clock=browserClock(),h=harness(b.api,clock,{
+      'react-router-dom':{useParams:()=>({roundId:round}),Link:'Link'},
+      '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+      '../components/AddRoundMemberSearch':{default:'AddRoundMemberSearch'},
+      '../components/EditRoundForm':{default:'EditRoundForm'},
+      '../components/RoundCharactersSection':{default:'RoundCharactersSection'},
+      '../hooks/useRemoveRoundPlayer':{useRemoveRoundPlayer:()=>({})},
+      '../hooks/useTransferGameMaster':{useTransferGameMaster:()=>({})},
+    })
+    const Page=h.load('src/pages/RoundDetailsPage.tsx').default
+    const ownMembers=[member(user,role)]
+    const resolveReads=(start,status)=>{
+      for(const request of b.requests.slice(start)) {
+        const data=request.table==='characters' ? [] : request.single ? roundData(role,{status}) : ownMembers
+        request.resolve({data,error:null})
+      }
+    }
+    h.render(Page,[]);resolveReads(0,'active');await tick()
+    let tree=h.render();resolveReads(2,'active');await tick()
+    const sectionKey=nodes(tree).find(n=>n.type==='RoundCharactersSection').key
+    const channel=b.channels.find(c=>c.config.table==='rounds')
+    assert.equal(channel.config.schema,'public');assert.equal(channel.config.event,'UPDATE')
+    assert.equal(channel.config.filter,`id=eq.${round}`)
+    let start=b.requests.length
+    channel.status('SUBSCRIBED');clock.advance()
+    assert.ok(b.requests.length>start)
+    resolveReads(start,'active');await tick();h.render()
+    for(const [status,label,oldLabel] of [['archived','Archiviert','Aktiv'],['paused','Pausiert','Archiviert']]) {
+      start=b.requests.length
+      channel.cb({new:{status:'deliberately-wrong-payload'}});clock.advance()
+      const details=b.requests.slice(start).find(r=>r.single)
+      assert.ok(details,'rounds event must issue round-details SELECT')
+      assert.equal(details.table,'round_memberships');assert.equal(details.round_id,round);assert.equal(details.user_id,user)
+      assert.match(details.fields,/round:rounds!inner/);assert.match(details.fields,/\bstatus\b/)
+      assert.ok(nodes(h.render()).some(n=>n.props?.className?.includes('round-status-')&&textOf(n)===oldLabel))
+      resolveReads(start,status);await tick();tree=h.render()
+      assert.ok(nodes(tree).some(n=>n.props?.className?.includes(`round-status-${status}`)&&textOf(n)===label))
+      const section=nodes(tree).find(n=>n.type==='RoundCharactersSection')
+      assert.equal(section.props.roundStatus,status);assert.equal(section.key,sectionKey)
+      assert.equal(section.props.membershipRole,role)
+      assert.equal(b.channels.length,3);assert.equal(b.removals.length,0)
+    }
+    h.cleanup();assert.equal(b.removals.length,3)
+  })
+}

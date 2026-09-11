@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { supabase } from '../lib/supabase'
+import { useSuccessNoticeTimeout } from './useSuccessNoticeTimeout'
 
 type TransferGameMasterState = {
   isSubmitting: boolean
@@ -22,6 +23,7 @@ const transferError =
 export function useTransferGameMaster() {
   const { session, user } = useAuth()
   const [state, setState] = useState<TransferGameMasterState>(initialState)
+  useSuccessNoticeTimeout(state, setState)
   const isRequestInFlightRef = useRef(false)
 
   const resetState = useCallback(() => {

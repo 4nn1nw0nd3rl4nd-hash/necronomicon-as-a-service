@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { supabase } from '../lib/supabase'
+import { useSuccessNoticeTimeout } from './useSuccessNoticeTimeout'
 
 type AddRoundPlayerState = {
   isSubmitting: boolean
@@ -22,6 +23,7 @@ const addPlayerError =
 export function useAddRoundPlayer() {
   const { session, user } = useAuth()
   const [state, setState] = useState<AddRoundPlayerState>(initialState)
+  useSuccessNoticeTimeout(state, setState)
   const isRequestInFlightRef = useRef(false)
 
   const resetState = useCallback(() => {

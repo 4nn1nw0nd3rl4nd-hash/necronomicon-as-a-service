@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { supabase } from '../lib/supabase'
+import { useSuccessNoticeTimeout } from './useSuccessNoticeTimeout'
 import type {
   RoundDetails,
   RoundStatus,
@@ -34,6 +35,7 @@ const technicalError =
 export function useUpdateRound() {
   const { session, user } = useAuth()
   const [state, setState] = useState<UpdateRoundState>(initialState)
+  useSuccessNoticeTimeout(state, setState)
   const isRequestInFlightRef = useRef(false)
 
   const resetState = useCallback(() => {
