@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const copyError =
@@ -8,6 +8,11 @@ export function useCopyCharacter() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isRequestInFlightRef = useRef(false)
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [])
 
   const resetState = useCallback(() => {
     setError(null)
@@ -24,6 +29,7 @@ export function useCopyCharacter() {
         return null
       }
 
+      const generation = lifecycle.current
       isRequestInFlightRef.current = true
       setIsSubmitting(true)
       setError(null)
@@ -36,6 +42,7 @@ export function useCopyCharacter() {
           },
         )
 
+        if (generation !== lifecycle.current) return null
         if (requestError || typeof data !== 'string') {
           setError(copyError)
           return null
@@ -43,11 +50,12 @@ export function useCopyCharacter() {
 
         return data
       } catch {
+        if (generation !== lifecycle.current) return null
         setError(copyError)
         return null
       } finally {
         isRequestInFlightRef.current = false
-        setIsSubmitting(false)
+        if (generation === lifecycle.current) setIsSubmitting(false)
       }
     },
     [],

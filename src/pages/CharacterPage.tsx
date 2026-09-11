@@ -90,10 +90,17 @@ function CharacterPageContent({ characterId, userId }: {
     updateCharacterDataField,
   } = useCharacter(characterId, userId)
   const activeRef = useRef(false)
+  const lifecycle = useRef(0)
+  // Upload and remove share the portrait: only the latest action may refresh it.
+  const portraitMutation = useRef(0)
   useEffect(() => {
+    const generation = ++lifecycle.current
     activeRef.current = true
-    return () => { activeRef.current = false }
-  }, [])
+    return () => {
+      activeRef.current = false
+      lifecycle.current = generation + 1
+    }
+  }, [characterId, userId])
   const {
     portraitUrl,
     isLoading: isPortraitLoading,
@@ -248,7 +255,9 @@ function CharacterPageContent({ characterId, userId }: {
       return
     }
 
+    const generation = lifecycle.current
     const wasDeleted = await softDeleteCharacter(character.id)
+    if (generation !== lifecycle.current) return
 
     if (wasDeleted) {
       setIsDeleteConfirmationOpen(false)
@@ -270,7 +279,9 @@ function CharacterPageContent({ characterId, userId }: {
       return
     }
 
+    const generation = lifecycle.current
     const newCharacterId = await copyCharacter(character.id)
+    if (generation !== lifecycle.current) return
 
     if (newCharacterId) {
       setIsCopyConfirmationOpen(false)
@@ -369,9 +380,11 @@ function CharacterPageContent({ characterId, userId }: {
     }
 
     resetPortraitRemoveState()
+    const generation = lifecycle.current
+    const mutation = ++portraitMutation.current
     const wasUploaded = await uploadCharacterPortrait(character.id, file)
 
-    if (wasUploaded && activeRef.current) {
+    if (wasUploaded && generation === lifecycle.current && mutation === portraitMutation.current) {
       reloadPortrait()
     }
   }
@@ -400,9 +413,11 @@ function CharacterPageContent({ characterId, userId }: {
       return
     }
 
+    const generation = lifecycle.current
+    const mutation = ++portraitMutation.current
     const wasRemoved = await removeCharacterPortrait(character.id)
 
-    if (wasRemoved && activeRef.current) {
+    if (wasRemoved && generation === lifecycle.current && mutation === portraitMutation.current) {
       setIsPortraitRemoveConfirmationOpen(false)
       clearPortrait()
     }

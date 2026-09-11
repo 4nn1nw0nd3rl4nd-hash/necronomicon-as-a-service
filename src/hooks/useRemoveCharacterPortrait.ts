@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   characterPortraitBucket,
   getCharacterPortraitPath,
@@ -13,6 +13,11 @@ export function useRemoveCharacterPortrait() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isRequestInFlightRef = useRef(false)
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [])
 
   const resetState = useCallback(() => {
     setError(null)
@@ -29,6 +34,7 @@ export function useRemoveCharacterPortrait() {
         return false
       }
 
+      const generation = lifecycle.current
       isRequestInFlightRef.current = true
       setIsSubmitting(true)
       setError(null)
@@ -38,6 +44,7 @@ export function useRemoveCharacterPortrait() {
           .from(characterPortraitBucket)
           .remove([getCharacterPortraitPath(characterId)])
 
+        if (generation !== lifecycle.current) return false
         if (requestError) {
           setError(removeError)
           return false
@@ -45,11 +52,12 @@ export function useRemoveCharacterPortrait() {
 
         return true
       } catch {
+        if (generation !== lifecycle.current) return false
         setError(removeError)
         return false
       } finally {
         isRequestInFlightRef.current = false
-        setIsSubmitting(false)
+        if (generation === lifecycle.current) setIsSubmitting(false)
       }
     },
     [],

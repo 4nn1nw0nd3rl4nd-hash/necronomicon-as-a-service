@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../auth/useAuth'
 import EmailChangeForm from '../components/EmailChangeForm'
@@ -8,6 +8,11 @@ import { getAccountRoleLabel } from '../lib/accountRoleLabels'
 
 function ProfilePage() {
   const { user } = useAuth()
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [user?.id])
   const {
     profile,
     isLoading,
@@ -66,8 +71,11 @@ function ProfilePage() {
     }
 
     setDisplayNameError(null)
+    const generation = lifecycle.current
     const updatedProfile = await updateDisplayName(displayName)
 
+    // The shared provider may still save; only this page's continuation expires.
+    if (generation !== lifecycle.current) return
     if (updatedProfile) {
       setDisplayNameDraft(null)
       setSaveSucceeded(true)

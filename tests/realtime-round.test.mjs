@@ -1363,3 +1363,137 @@ test('review: profile save completing after leaving ProfilePage must not update 
   finish(profileData({display_name:'Draft'}));await submitted
   assert.equal(h.stateWriteCount(),writes,'shared save may finish, but the departed page must not set state')
 })
+
+for(const action of ['copy','delete']) {
+  test(`cleanup fix: ${action} keeps normal navigation but discards responses across keyed character/account changes`,async()=>{
+    const navigations=[]
+    const setup=(id,account)=>sheetPageSetup({
+      '../hooks/useCopyCharacter':undefined,
+      '../hooks/useSoftDeleteCharacter':undefined,
+      '../auth/useAuth':{useAuth:()=>({user:{id:account}})},
+      'react-router-dom':{useParams:()=>({characterId:id}),useLocation:()=>({}),useNavigate:()=> (...args)=>navigations.push(args),Link:'Link'},
+    })
+    const start=fixture=>{
+      nodes(fixture.h.render()).find(n=>n.props?.className===`character-${action}-trigger`).props.onClick()
+      nodes(fixture.h.render()).find(n=>n.props?.className===`character-${action}-confirm`).props.onClick()
+      return fixture.b.requests.at(-1)
+    }
+    const current=setup(other,user);await current.resolveRead()
+    start(current).resolve({data:action==='copy'?round:null,error:null});await settle()
+    assert.equal(navigations[0][0],action==='copy'?`/app/characters/${round}`:'/app/characters')
+    const late=start(current);current.h.cleanup();const oldWrites=current.h.stateWriteCount()
+    const next=setup(round,'next-user');assert.notEqual(next.root.key,current.root.key)
+    await next.resolveRead(sheetData({id:round,owner_user_id:'next-user',name:'Next character'}))
+    const nextWrites=next.h.stateWriteCount()
+    late.resolve({data:action==='copy'?other:null,error:null});await settle()
+    assert.equal(navigations.length,1)
+    assert.equal(current.h.stateWriteCount(),oldWrites);assert.equal(next.h.stateWriteCount(),nextWrites)
+    assert.match(textOf(next.h.render()),/Next character/);next.h.cleanup()
+  })
+}
+
+for(const name of ['useCopyCharacter','useSoftDeleteCharacter','useUploadCharacterPortrait','useRemoveCharacterPortrait']) {
+  test(`cleanup fix: ${name} ignores obsolete success/error/rejection after StrictMode replay`,async()=>{
+    for(const outcome of ['success','error','reject']) {
+      const b=backend()
+      b.api.storage={from:()=>Object.fromEntries(['upload','remove'].map(method=>[method,()=>new Promise((resolve,reject)=>b.requests.push({resolve,reject}))]))}
+      const h=harness(b.api),hook=h.load(`src/hooks/${name}.ts`)[name]
+      const action={useCopyCharacter:'copyCharacter',useSoftDeleteCharacter:'softDeleteCharacter',useUploadCharacterPortrait:'uploadCharacterPortrait',useRemoveCharacterPortrait:'removeCharacterPortrait'}[name]
+      const result=h.render(hook,[])[action](other,{type:'image/png',size:1024})
+      h.replayEffects();const writes=h.stateWriteCount()
+      if(outcome==='reject')b.requests[0].reject(Error('offline'))
+      else b.requests[0].resolve({data:round,error:outcome==='error'?{message:'denied'}:null})
+      assert.equal(await result,name==='useCopyCharacter'?null:false)
+      assert.equal(h.stateWriteCount(),writes);h.cleanup()
+    }
+  })
+}
+
+for(const switched of [false,true]) {
+  test(`cleanup fix: portrait upload/delete reverse completion ${switched?'across character/account remount':'within the same page'} cannot restore an obsolete image`,async()=>{
+    const storage=[];let reloads=0,clears=0
+    const {b,h,root,resolveRead}=sheetPageSetup({
+      '../hooks/useUploadCharacterPortrait':undefined,
+      '../hooks/useRemoveCharacterPortrait':undefined,
+      '../hooks/useCharacterPortrait':{useCharacterPortrait:()=>({portraitUrl:'blob:current',isLoading:false,error:null,reload:()=>reloads++,clearPortrait:()=>clears++,reconcile(){}})},
+    })
+    b.api.storage={from:()=>Object.fromEntries(['upload','remove'].map(method=>[method,()=>new Promise(resolve=>storage.push({method,resolve}))]))}
+    await resolveRead()
+    nodes(h.render()).find(n=>n.props?.className==='character-portrait-remove-trigger').props.onClick()
+    // Keep both handlers to model already-dispatched actions; ordinary UI disables
+    // overlapping operations, but completion ordering must still be harmless.
+    const remove=nodes(h.render()).find(n=>n.props?.className==='character-portrait-remove-confirm').props.onClick
+    const upload=nodes(h.render()).find(n=>n.type==='input'&&n.props.type==='file').props.onChange
+    upload({target:{files:[{type:'image/png',size:1024}],value:'file'}})
+    let next
+    if(switched){
+      h.cleanup()
+      next=sheetPageSetup({
+        '../auth/useAuth':{useAuth:()=>({user:{id:'next-user'}})},
+        'react-router-dom':{useParams:()=>({characterId:round}),useLocation:()=>({}),useNavigate:()=>()=>{},Link:'Link'},
+        '../hooks/useRemoveCharacterPortrait':undefined,
+        '../hooks/useCharacterPortrait':{useCharacterPortrait:()=>({portraitUrl:'blob:next',isLoading:false,error:null,reload:()=>reloads++,clearPortrait:()=>clears++,reconcile(){}})},
+      })
+      next.b.api.storage=b.api.storage
+      assert.notEqual(next.root.key,root.key)
+      await next.resolveRead(sheetData({id:round,owner_user_id:'next-user'}))
+      nodes(next.h.render()).find(n=>n.props?.className==='character-portrait-remove-trigger').props.onClick()
+      nodes(next.h.render()).find(n=>n.props?.className==='character-portrait-remove-confirm').props.onClick()
+    }else remove()
+    assert.equal(storage.length,2)
+    storage[1].resolve({error:null});await settle();assert.equal(clears,1)
+    const writes=h.stateWriteCount(),nextWrites=next?.h.stateWriteCount()
+    storage[0].resolve({error:null});await settle()
+    assert.equal(reloads,0);assert.equal(clears,1)
+    if(switched){assert.equal(h.stateWriteCount(),writes);assert.equal(next.h.stateWriteCount(),nextWrites);next.h.cleanup()}
+    else h.cleanup()
+  })
+}
+
+test('cleanup fix: profile save from account A cannot clear account B draft or display success',async()=>{
+  let profile=profileData(),finish
+  const save=new Promise(resolve=>{finish=resolve})
+  const h=harness({}, {}, {
+    '../auth/useAuth':{useAuth:()=>({user:{id:profile.id}})},
+    '../hooks/useProfile':{useProfile:()=>({profile,isLoading:false,isSaving:false,updateDisplayName:()=>save})},
+    '../components/EmailChangeForm':{default:'EmailChangeForm'},
+    '../components/PasswordChangeForm':{default:'PasswordChangeForm'},
+  })
+  const Page=h.load('src/pages/ProfilePage.tsx').default
+  const input=()=>nodes(h.render()).find(n=>n.props?.id==='display-name')
+  h.render(Page,[]);input().props.onChange({target:{value:'Draft A'}})
+  const submitted=nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  profile=profileData({id:'next-user',display_name:'Account B'})
+  input().props.onChange({target:{value:'Draft B'}})
+  const writes=h.stateWriteCount();finish(profileData({display_name:'Draft A'}));await submitted
+  assert.equal(h.stateWriteCount(),writes);assert.equal(input().props.value,'Draft B')
+  assert.doesNotMatch(textOf(h.render()),/Profil wurde gespeichert/);h.cleanup()
+})
+
+for(const departed of [false,true]) {
+  test(`cleanup fix: shared provider save updates global profile with ProfilePage ${departed?'unmounted':'still open'}`,async()=>{
+    const provider=profileSetup()
+    provider.b.requests[0].resolve({data:profileData(),error:null});await settle()
+    const h=harness({}, {}, {
+      '../auth/useAuth':{useAuth:()=>provider.auth},
+      '../hooks/useProfile':{useProfile:()=>provider.render()},
+      '../components/EmailChangeForm':{default:'EmailChangeForm'},
+      '../components/PasswordChangeForm':{default:'PasswordChangeForm'},
+    })
+    const Page=h.load('src/pages/ProfilePage.tsx').default
+    h.render(Page,[])
+    nodes(h.render()).find(n=>n.props?.id==='display-name').props.onChange({target:{value:'Saved'}})
+    const submitted=nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+    const write=provider.b.requests.at(-1)
+    if(departed)h.cleanup()
+    const writes=h.stateWriteCount()
+    write.resolve({data:profileData({display_name:'Saved'}),error:null});await submitted
+    assert.equal(provider.render().profile.display_name,'Saved')
+    if(departed)assert.equal(h.stateWriteCount(),writes)
+    else{
+      assert.match(textOf(h.render()),/Profil wurde gespeichert/)
+      assert.equal(nodes(h.render()).find(n=>n.props?.id==='display-name').props.value,'Saved');h.cleanup()
+    }
+    provider.h.cleanup()
+  })
+}

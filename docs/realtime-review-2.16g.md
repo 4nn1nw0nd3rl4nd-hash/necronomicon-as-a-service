@@ -1,5 +1,20 @@
 # Phase 2.16g – Realtime-Abschlussreview
 
+## Nachprüfung: gezielte Cleanup-Korrektur
+
+Die fünf unten historisch dokumentierten Fehler wurden zunächst erneut reproduziert (64/69), anschließend ausschließlich in den betroffenen Mutationshooks und Seitenfortsetzungen korrigiert. Der ursprüngliche Reviewtext bleibt als Nachweis erhalten; seine Fehlerzahlen und Freigabeentscheidung beschreiben den Stand **vor** dieser Korrektur.
+
+- `useCopyCharacter`, `useSoftDeleteCharacter`, `useUploadCharacterPortrait` und `useRemoveCharacterPortrait` entwerten laufende Antworten über Lifecycle-Generationen bei Unmount/StrictMode-Cleanup. Erfolgs-, Fehler- und `finally`-Pfade übernehmen dann keinen UI-State mehr. Backend-Writes werden dadurch nicht rückgängig gemacht.
+- CharacterPage prüft vor Copy-/Delete-Navigation die ursprüngliche Seitengeneration. Der vorhandene React-Key aus Account- und Character-ID trennt beim tatsächlichen Scopewechsel auch die Mutationshook-Instanzen. Portraitfortsetzungen prüfen zusätzlich eine gemeinsame Operationsnummer: Eine ältere Uploadantwort kann nach einer neueren Löschaktion keinen Portrait-Reload auslösen.
+- ProfilePage bindet ausschließlich ihre lokale Save-Fortsetzung an Lifecycle und User-ID. Der gemeinsame Provider darf den gespeicherten Profilzustand weiterhin übernehmen und abgleichen. Provider, Context und Authentifizierung bleiben unverändert.
+- `useCharacterPortrait` bleibt unverändert: Seine vorhandenen Scope-/Generationsprüfungen, Abort-Signale und Blob-URL-Freigaben decken die Leseantworten ab. Upload-/Delete-Hooks erzeugen selbst keine Blob-URLs; zusätzliche Freigaben waren nicht erforderlich.
+
+Ergebnis: **80/80 Tests erfolgreich**, einschließlich aller fünf ursprünglichen unveränderten Fehlerfall-Tests. Elf ergänzte Tests prüfen normale Copy-/Delete-Navigation, echte durch Keys getrennte Character-/Account-Lebenszyklen, verspätete Erfolgs-/Fehler-/Exception-Antworten unter StrictMode, Portraitantworten in umgekehrter Reihenfolge sowie globale und lokale Profile-Save-Wirkung bei geöffneter/verlassener Seite und Accountwechsel. Build und ESLint erfolgreich; bestehende Build-Warnung für einen Chunk über 500 kB. `git diff --check` und statischer Diff geprüft. Keine neue Dependency, Migration, RLS-/Grant- oder Realtime-Änderung; kein db push, Commit oder Push.
+
+Die fünf nachgewiesenen technischen Cleanup-Blocker sind damit behoben. Aus diesen Befunden ist kein weiterer technischer Blocker bekannt; die im Review beschriebenen Lost-Update- und Reconciliation-Grenzen bleiben bestehen. Die Tests sind weiterhin Simulationen, keine neue Staging-/Browser-Abnahme. Phase 2.16 wird hier noch nicht als abgeschlossen markiert; die gezielte manuelle Nachprüfung bleibt offen. Phase 3 wurde nicht begonnen.
+
+## Ursprünglicher Reviewstand vor der Korrektur
+
 Stand: 2026-09-11, geprüfter Ausgangscommit `2d36c89` (`admin real time`). Der Arbeitsbaum war zu Beginn sauber. Geändert wurden ausschließlich diese Dokumentation und kleine Ergänzungen der vorhandenen Testsuite. Keine Änderungen an Anwendungscode, Dependencies, SQL, RLS oder Grants; kein db push, Commit, Push oder Beginn von Phase 3.
 
 **Ergebnis: noch keine uneingeschränkte Abschlussfreigabe für Phase 2.16.** Die vorhandenen 63 Tests bestehen. Sechs ergänzte Tests ergeben einen erfolgreichen Publication-Vertragstest und fünf reproduzierbare Cleanup-Fehlerfälle. Insgesamt: **69 Tests, 64 erfolgreich, 5 fehlgeschlagen**, keine übersprungenen Tests oder TODO-Markierungen. Die Fehler stammen aus dem geprüften Anwendungscode; dieser wurde im Review nicht verändert.

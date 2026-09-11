@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   characterPortraitBucket,
   characterPortraitMaxFileSize,
@@ -15,6 +15,11 @@ export function useUploadCharacterPortrait() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isRequestInFlightRef = useRef(false)
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [])
 
   const resetState = useCallback(() => {
     setError(null)
@@ -41,6 +46,7 @@ export function useUploadCharacterPortrait() {
         return false
       }
 
+      const generation = lifecycle.current
       isRequestInFlightRef.current = true
       setIsSubmitting(true)
       setError(null)
@@ -53,6 +59,7 @@ export function useUploadCharacterPortrait() {
             contentType: file.type,
           })
 
+        if (generation !== lifecycle.current) return false
         if (requestError) {
           setError(uploadError)
           return false
@@ -60,11 +67,12 @@ export function useUploadCharacterPortrait() {
 
         return true
       } catch {
+        if (generation !== lifecycle.current) return false
         setError(uploadError)
         return false
       } finally {
         isRequestInFlightRef.current = false
-        setIsSubmitting(false)
+        if (generation === lifecycle.current) setIsSubmitting(false)
       }
     },
     [],
