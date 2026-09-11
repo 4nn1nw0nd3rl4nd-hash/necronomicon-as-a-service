@@ -251,3 +251,35 @@ Private Namen, Teilnehmerdaten und Testaccounts werden nicht im Repository dokum
 - Chat und Würfelsystem
 - Journal
 - Spieltisch beziehungsweise Whiteboard
+
+## Charakter-Realtime (Phase 2.16d)
+
+Die geöffnete CharacterPage verwendet den vorhandenen Realtime-Hook als Invalidierungssignal und liest anschließend den autorisierten Serverstand. Sie abonniert `characters UPDATE` mit `id=eq.<characterId>`. Für einen zugeordneten Charakter kommen `rounds UPDATE` mit `id=eq.<roundId>` und `round_memberships INSERT/UPDATE` mit `round_id=eq.<roundId>` hinzu, damit Rundensperren und GM-Wechsel berücksichtigt werden. Diese Stringfilter werden von der eingesetzten Supabase-JS-Version 2.112.4 unterstützt; siehe auch die [Supabase-Dokumentation zu Postgres Changes](https://supabase.com/docs/guides/realtime/postgres-changes).
+
+Ereignisse und Fokus-/Visibility-/Reconnect-Abgleiche werden über 100 ms gebündelt. `useCharacter` hält höchstens eine Leseanfrage gleichzeitig offen und merkt weitere Invalidierungen für einen Folgeabruf vor. Eigene Saves und Checks pausieren die Übernahme von Leseantworten; auch eine schon vor dem Write gestartete Antwort wird verworfen. Nach Abschluss aller eigenen Writes erfolgt immer ein Serverabgleich, auch bei RPC-Fehlern. Optimistische Checks bleiben während des Writes erhalten. Es wird kein vermeintlicher Urheber aus einem Event-Payload abgeleitet.
+
+Im Lesemodus werden neue Daten still übernommen. Im Edit-Modus bleiben `draftName` und `draftData` getrennt vom Serverstand. Die Baseline umfasst das vom vorhandenen Trigger gepflegte `updated_at` sowie Inhalt, Zuordnung und den geladenen Sperrstatus. Ein abweichender Serverstand erzeugt einen Hinweis und blockiert sowohl den Speichern-Button als auch den Submit-Handler. „Serverstand laden und lokalen Entwurf verwerfen“ ersetzt den Entwurf erst nach erfolgreichem Reload; bei einem Netzwerkfehler bleibt er erhalten. Ein normaler eigener Save beendet den Edit-Modus und gleicht anschließend den Serverstand ab. Ein Charakter-/Accountwechsel setzt den lokalen Komponenten-State zurück; gewöhnliche Refetches tun dies nicht.
+
+**Verbleibendes Lost-Update-Risiko:** `update_character(uuid, text, jsonb)` ersetzt weiterhin das vollständige `data`-Dokument. Beginnt A mit dem Bearbeiten, setzt B einen Check und speichert A, bevor die fremde Änderung erkannt wurde, kann As alter Draft Bs Check überschreiben. Die Warnung und Speichersperre verhindern das Speichern bei einem bereits erkannten Konflikt, bieten aber keinen atomaren Schutz zwischen Lesen und Schreiben. `updated_at` ist hier eine Frontend-Baseline, keine serverseitige Versionsbedingung. Es gibt kein automatisches Merge und keinen Überschreiben-Button für bekannte Konflikte.
+
+Temporäre Lesefehler erhalten den zuletzt geladenen Inhalt. Eine erfolgreiche leere Antwort, Soft Delete oder ein bestätigter Berechtigungsfehler entfernt ihn aus der Anzeige. Bei einem Round Lock bleiben persönliche Owner-Rechte erhalten; ein GM ohne Besitzrechte sieht den Bogen nur lesend. Ein schon offener GM-Entwurf bleibt dabei erhalten, seine Felder und Speichern werden gesperrt. Falls ein Event wegen RLS/Zugriffsverlust nicht zugestellt wird, erfolgt der Abgleich bei Fokus-/Visibility-Rückkehr oder Reconnect. Eine zuletzt bekannte Runden-ID bleibt dafür als Subscription-Scope erhalten, ohne den nicht mehr autorisierten Charakterinhalt anzuzeigen. Keine DELETE-Subscription, kein Polling, keine RLS-/Grant-/Publication-Änderung.
+
+Automatisierte Prüfung: `node tests/realtime-round.test.mjs`, außerdem `npm run build`, `npm run lint` und `git diff --check`. Die Tests simulieren Hook-Lebenszyklen, Seitenzustände, Zeit und Backend-Antworten; sie ersetzen keinen echten Zwei-Session-/RLS-Test.
+
+### MANUAL: Zwei Sessions auf Staging
+
+Für gemeinsame Character-Rechte beispielsweise Owner und GM derselben ungesperrten Runde verwenden. Die empfangende Session im Vordergrund lassen, damit ein Fokusabgleich fehlende Live-Events nicht verdeckt.
+
+| Fall | Ablauf und erwartetes Ergebnis |
+| --- | --- |
+| A: Lesen | Beide öffnen denselben Charakter. A ändert Name/Wert und speichert; B zeigt den neuen Stand ohne Reload oder Ladeflackern. |
+| B: Check | A setzt einen Check; B zeigt ihn ohne Reload. |
+| C: Edit-Konflikt | A bearbeitet Name und Text, B ändert den Charakter. As Eingaben bleiben erhalten, der Hinweis erscheint. |
+| D: Konflikt-Save | A versucht zu speichern, auch per Enter. Der erkannte Konflikt blockiert den Save; kein `update_character`-RPC wird gesendet. |
+| E: Bewusster Reload | A lädt den Serverstand über den ausdrücklich als Verwerfen beschrifteten Button. Der aktuelle Entwurf wird ersetzt, der Hinweis verschwindet. Bei Netzwerkfehler bleiben Entwurf und Hinweis erhalten. Auch Abbrechen prüfen. |
+| F: Eigener Save | Ohne Konflikt speichern, danach erneut Bearbeiten öffnen. Keine falsche Konfliktwarnung durch das eigene Event. |
+| G: Schnelle Checks | Beide Sessions setzen schnell Checks, auch auf unterschiedlichen Feldern. Nach Ende der Anfragen entspricht die Anzeige dem Serverstand. Offline-/Fehlerfall ebenfalls prüfen. |
+| H: Round Lock/Zugriff | Die Runde mit berechtigtem Account sperren/entsperren. Owner bleibt editierberechtigt; GM ohne Besitzrechte wird read-only, ein offener Entwurf bleibt erhalten. GM-Wechsel, Zuordnung und Soft Delete prüfen; bei ausbleibendem Event muss Fokus/Reconnect den Zugriff korrigieren. |
+| I: Navigation/Logout | Mit laufender Anfrage Charakter wechseln oder ausloggen. Keine alten Inhalte/Entwürfe in der neuen Ansicht, keine verbleibenden Channels der alten Seite. StrictMode und Reconnect mitprüfen. |
+
+Den Konflikthinweis zusätzlich auf Desktop und schmalem Mobilgerät mit Tastatur und langen Texten prüfen. Diese manuellen Tests wurden durch die isolierte Testumgebung nicht ausgeführt. Portrait-Realtime und Portrait-Versionierung bleiben Phase 2.16e vorbehalten; globale Übersichten, Profile und Administration werden hier nicht live synchronisiert.

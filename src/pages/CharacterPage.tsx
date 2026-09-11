@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import {
   Link,
@@ -11,6 +11,7 @@ import CharacterRoundAssignment from '../components/CharacterRoundAssignment'
 import { CharacterSheetRenderer } from '../components/CharacterSheetRenderer'
 import { findCharacterTemplate } from '../characterTemplates'
 import { useCharacter } from '../hooks/useCharacter'
+import { useCharacterRealtime } from '../hooks/useCharacterRealtime'
 import { useCharacterPortrait } from '../hooks/useCharacterPortrait'
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
 import { useRemoveCharacterPortrait } from '../hooks/useRemoveCharacterPortrait'
@@ -18,6 +19,7 @@ import { useSetCharacterCheck } from '../hooks/useSetCharacterCheck'
 import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
 import { useUpdateCharacter } from '../hooks/useUpdateCharacter'
 import { useUploadCharacterPortrait } from '../hooks/useUploadCharacterPortrait'
+import type { CharacterDetails } from '../types/character'
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -60,19 +62,39 @@ function getReturnLink(locationState: unknown) {
   return fallback
 }
 
-function CharacterPage() {
-  const { characterId } = useParams()
+// updated_at is maintained by the database trigger. Include content and joined
+// lock state too: timestamps are not an atomic version or a lock revision.
+function characterRevision(character: CharacterDetails) {
+  return JSON.stringify([
+    character.updated_at, character.name, character.data,
+    character.owner_user_id, character.round_id, character.deleted_at,
+    character.round?.locked_at,
+  ])
+}
+
+function CharacterPageContent({ characterId, userId }: {
+  characterId: string | undefined
+  userId: string | undefined
+}) {
   const location = useLocation()
   const navigate = useNavigate()
   const returnLink = getReturnLink(location.state)
-  const { user } = useAuth()
   const {
     character,
+    roundId: realtimeRoundId,
     isLoading,
+    isRefreshing,
     error,
     reload,
+    beginWrite,
     updateCharacterDataField,
-  } = useCharacter(characterId)
+  } = useCharacter(characterId, userId)
+  useCharacterRealtime({ characterId, userId, roundId: realtimeRoundId, reload })
+  const activeRef = useRef(false)
+  useEffect(() => {
+    activeRef.current = true
+    return () => { activeRef.current = false }
+  }, [])
   const {
     portraitUrl,
     isLoading: isPortraitLoading,
@@ -121,6 +143,8 @@ function CharacterPage() {
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(
     null,
   )
+  const [editBaseline, setEditBaseline] = useState<string | null>(null)
+  const [isReloadingDraft, setIsReloadingDraft] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [draftData, setDraftData] = useState<Record<string, unknown>>({})
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -132,7 +156,7 @@ function CharacterPage() {
     useState(false)
 
   const isCharacterOwner = Boolean(
-    character && user && character.owner_user_id === user.id,
+    character && userId && character.owner_user_id === userId,
   )
   const isRoundLocked = Boolean(
     character?.round && character.round.locked_at !== null,
@@ -140,15 +164,17 @@ function CharacterPage() {
   const canMutateCharacter = Boolean(
     isCharacterOwner ||
       (character &&
-        user &&
+        userId &&
         character.round !== null &&
         character.round.locked_at === null),
   )
-  const isEditing =
-    editingCharacterId === character?.id && canMutateCharacter
+  const isEditing = editingCharacterId === character?.id
+  const remoteChangesPending = Boolean(
+    isEditing && character && editBaseline !== characterRevision(character),
+  )
   const canManagePortrait = Boolean(
     character &&
-      user &&
+      userId &&
       character.deleted_at === null &&
       canMutateCharacter,
   )
@@ -166,6 +192,7 @@ function CharacterPage() {
       !character ||
       !canMutateCharacter ||
       hasPendingCheckRequests ||
+      isRefreshing ||
       isCopying ||
       isDeleting
     ) {
@@ -176,6 +203,7 @@ function CharacterPage() {
     setIsDeleteConfirmationOpen(false)
     resetCopyState()
     resetDeleteState()
+    setEditBaseline(characterRevision(character))
     setDraftName(character.name)
     setDraftData({ ...character.data })
     resetEditMessages()
@@ -254,9 +282,27 @@ function CharacterPage() {
   }
 
   const cancelEditing = () => {
+    if (isSubmitting || isReloadingDraft) return
+    void reload()
     setEditingCharacterId(null)
     setDraftName('')
     setDraftData({})
+    resetEditMessages()
+  }
+
+  const reloadDraft = async () => {
+    if (isSubmitting || isReloadingDraft) return
+    setIsReloadingDraft(true)
+    const latest = await reload()
+    if (!activeRef.current) return
+    setIsReloadingDraft(false)
+    if (!latest) {
+      setValidationError('Der aktuelle Stand konnte nicht geladen werden. Dein Entwurf bleibt erhalten.')
+      return
+    }
+    setDraftName(latest.name)
+    setDraftData({ ...latest.data })
+    setEditBaseline(characterRevision(latest))
     resetEditMessages()
   }
 
@@ -287,14 +333,17 @@ function CharacterPage() {
       return
     }
 
+    const finishWrite = beginWrite()
     const previousValue = character.data?.[fieldKey] === true
     updateCharacterDataField(fieldKey, checked)
 
     const wasSaved = await request
 
+    if (!activeRef.current) return
     if (!wasSaved) {
       updateCharacterDataField(fieldKey, previousValue)
     }
+    finishWrite()
   }
 
   const openPortraitFilePicker = () => {
@@ -360,6 +409,7 @@ function CharacterPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (isSubmitting || isReloadingDraft || !isEditing || remoteChangesPending) return
 
     const normalizedName = draftName.trim()
 
@@ -377,19 +427,21 @@ function CharacterPage() {
       return
     }
 
+    const finishWrite = beginWrite()
     const wasUpdated = await updateCharacter(
       character.id,
       normalizedName,
       draftData,
     )
 
+    if (!activeRef.current) return
     if (wasUpdated) {
       setEditingCharacterId(null)
       setDraftName('')
       setDraftData({})
       setValidationError(null)
-      reload()
     }
+    finishWrite()
   }
 
   let content
@@ -428,7 +480,7 @@ function CharacterPage() {
                   <button
                     className="character-edit-button"
                     disabled={
-                      hasPendingCheckRequests || isCopying || isDeleting
+                      hasPendingCheckRequests || isRefreshing || isCopying || isDeleting
                     }
                     onClick={startEditing}
                     type="button"
@@ -704,24 +756,38 @@ function CharacterPage() {
           </div>
         )}
 
-        {user &&
-          character.owner_user_id === user.id &&
+        {userId &&
+          character.owner_user_id === userId &&
           !isEditing && (
             <CharacterRoundAssignment
               character={character}
               onChanged={reload}
-              ownerUserId={user.id}
+              ownerUserId={userId}
             />
           )}
 
         {template ? (
           isEditing ? (
             <form className="character-edit-form" onSubmit={handleSubmit}>
+              {remoteChangesPending && (
+                <div className="character-remote-notice" role="status">
+                  <p>Dieser Charakter wurde zwischenzeitlich geändert.</p>
+                  <p>Lade den aktuellen Stand neu, bevor du speicherst.</p>
+                  <button
+                    className="character-edit-cancel"
+                    type="button"
+                    disabled={isSubmitting || isReloadingDraft}
+                    onClick={() => void reloadDraft()}
+                  >
+                    {isReloadingDraft ? 'Wird geladen...' : 'Serverstand laden und lokalen Entwurf verwerfen'}
+                  </button>
+                </div>
+              )}
               <CharacterSheetRenderer
                 character={character}
                 draftData={draftData}
                 draftName={draftName}
-                isDisabled={isSubmitting}
+                isDisabled={isSubmitting || isReloadingDraft || !canMutateCharacter}
                 mode="edit"
                 onDataFieldChange={handleDataFieldChange}
                 onNameChange={handleNameChange}
@@ -736,14 +802,17 @@ function CharacterPage() {
                 <button
                   className="auth-submit"
                   data-submitting={isSubmitting}
-                  disabled={isSubmitting || !draftName.trim()}
+                  disabled={
+                    isSubmitting || isReloadingDraft || remoteChangesPending ||
+                    !canMutateCharacter || !draftName.trim()
+                  }
                   type="submit"
                 >
                   {isSubmitting ? 'Speichern...' : 'Speichern'}
                 </button>
                 <button
                   className="character-edit-cancel"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isReloadingDraft}
                   onClick={cancelEditing}
                   type="button"
                 >
@@ -784,6 +853,19 @@ function CharacterPage() {
       </Link>
       {content}
     </section>
+  )
+}
+
+function CharacterPage() {
+  const { characterId } = useParams()
+  const { user } = useAuth()
+  // Only a real character/account switch remounts the draft and mutation state.
+  return (
+    <CharacterPageContent
+      key={`${user?.id}:${characterId}`}
+      characterId={characterId}
+      userId={user?.id}
+    />
   )
 }
 

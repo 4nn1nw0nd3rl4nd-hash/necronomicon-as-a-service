@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const checkError =
@@ -17,6 +17,11 @@ export function useSetCharacterCheck(characterId: string | undefined) {
     () => new Set(),
   )
   const activeRequestKeysRef = useRef(new Set<string>())
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [characterId])
 
   const resetState = useCallback(() => {
     setErrorState(null)
@@ -35,6 +40,7 @@ export function useSetCharacterCheck(characterId: string | undefined) {
         return null
       }
 
+      const generation = lifecycle.current
       activeRequestKeysRef.current.add(requestKey)
       setActiveRequestKeys(new Set(activeRequestKeysRef.current))
       setErrorState(null)
@@ -50,6 +56,7 @@ export function useSetCharacterCheck(characterId: string | undefined) {
             },
           )
 
+          if (generation !== lifecycle.current) return false
           if (requestError) {
             setErrorState({ characterId, message: checkError })
             return false
@@ -57,11 +64,12 @@ export function useSetCharacterCheck(characterId: string | undefined) {
 
           return true
         } catch {
+          if (generation !== lifecycle.current) return false
           setErrorState({ characterId, message: checkError })
           return false
         } finally {
           activeRequestKeysRef.current.delete(requestKey)
-          setActiveRequestKeys(new Set(activeRequestKeysRef.current))
+          if (generation === lifecycle.current) setActiveRequestKeys(new Set(activeRequestKeysRef.current))
         }
       })()
     },

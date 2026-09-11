@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 type UpdateCharacterState = {
@@ -21,6 +21,11 @@ function isDataObject(data: unknown): data is Record<string, unknown> {
 export function useUpdateCharacter() {
   const [state, setState] = useState<UpdateCharacterState>(initialState)
   const isRequestInFlightRef = useRef(false)
+  const lifecycle = useRef(0)
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    return () => { lifecycle.current = generation + 1 }
+  }, [])
 
   const resetState = useCallback(() => {
     setState((currentState) => ({
@@ -51,6 +56,7 @@ export function useUpdateCharacter() {
         return false
       }
 
+      const generation = lifecycle.current
       isRequestInFlightRef.current = true
       setState({ ...initialState, isSubmitting: true })
 
@@ -61,6 +67,7 @@ export function useUpdateCharacter() {
           p_data: data,
         })
 
+        if (generation !== lifecycle.current) return false
         if (error) {
           setState({ ...initialState, error: unavailableError })
           return false
@@ -68,11 +75,12 @@ export function useUpdateCharacter() {
 
         return true
       } catch {
+        if (generation !== lifecycle.current) return false
         setState({ ...initialState, error: unavailableError })
         return false
       } finally {
         isRequestInFlightRef.current = false
-        setState((currentState) => ({
+        if (generation === lifecycle.current) setState((currentState) => ({
           ...currentState,
           isSubmitting: false,
         }))

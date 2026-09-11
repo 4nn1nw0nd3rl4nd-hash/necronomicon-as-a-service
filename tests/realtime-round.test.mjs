@@ -11,7 +11,7 @@ let harnessId = 0
 function harness(supabase, globals = {}, overrides = {}) {
   const instanceId = ++harnessId
   const modules = new Map()
-  let cursor = 0, args, renderHook
+  let cursor = 0, args, renderHook, stateWrites = 0
   const slots = [], pendingEffects = []
   const same = (a,b) => a && b && a.length === b.length && a.every((v,i) => Object.is(v,b[i]))
   const react = {
@@ -19,7 +19,7 @@ function harness(supabase, globals = {}, overrides = {}) {
       const i = cursor++
       if (!slots[i]) slots[i] = {
         value: typeof initial === 'function' ? initial() : initial,
-        set: value => { slots[i].value = typeof value === 'function' ? value(slots[i].value) : value },
+        set: value => { stateWrites++; slots[i].value = typeof value === 'function' ? value(slots[i].value) : value },
       }
       return [slots[i].value, slots[i].set]
     },
@@ -60,6 +60,7 @@ function harness(supabase, globals = {}, overrides = {}) {
   }
   return {
     load,
+    stateWriteCount: () => stateWrites,
     render(fn=renderHook,next=args) {
       renderHook=fn; args=next; cursor=0
       const result=fn(...next)
@@ -631,3 +632,245 @@ for(const role of ['player','game_master']) {
     h.cleanup();assert.equal(b.removals.length,3)
   })
 }
+
+const sheetData=(overrides={})=>({
+  ...character(other),name:'Servername',round_id:round,created_at:'2026-09-01',
+  created_by_user_id:user,round:{locked_at:null},data:{check:false,note:'Server'},...overrides,
+})
+function sheetSetup() {
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock),{useCharacter:hook}=h.load('src/hooks/useCharacter.ts')
+  h.render(hook,[other,user])
+  return {b,clock,h,hook}
+}
+const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve()}
+
+test('character silent reads coalesce; transient errors preserve content; denial/soft deletion clear it',async()=>{
+  const {b,h}=sheetSetup()
+  b.requests[0].resolve({data:sheetData(),error:null});await settle()
+  const before=h.render().character
+  for(let i=0;i<10;i++)void h.render().reload()
+  assert.equal(h.render().character,before);assert.equal(h.render().isLoading,false)
+  assert.equal(b.requests.length,2)
+  b.requests[1].resolve({data:sheetData({name:'Remote'}),error:null});await settle()
+  assert.equal(b.requests.length,3);assert.equal(h.render().character.name,'Remote')
+  b.requests[2].reject(Error('network'));await settle()
+  assert.equal(h.render().character.name,'Remote');assert.equal(h.render().error,null)
+  assert.equal(h.render().isRefreshing,false)
+  for(const response of [{data:null,error:null},{data:null,error:{code:'42501'}},{data:sheetData({deleted_at:'today'}),error:null}]) {
+    void h.render().reload();b.requests.at(-1).resolve(response);await settle()
+    assert.equal(h.render().character,null);assert.ok(h.render().error)
+    assert.equal(h.render().roundId,round,'only the round dependency survives for recovery')
+  }
+  void h.render().reload();b.requests.at(-1).resolve({data:sheetData(),error:null});await settle()
+  assert.ok(h.render().character);h.cleanup()
+})
+
+test('character scope/account/logout and StrictMode abort reads and ignore obsolete replies',async()=>{
+  const {b,h,hook}=sheetSetup();h.replayEffects()
+  assert.equal(b.requests[0].signal.aborted,true)
+  b.requests[1].resolve({data:sheetData(),error:null});await settle()
+  b.requests[0].resolve({data:null,error:null});await settle();assert.ok(h.render().character)
+  void h.render().reload();const old=b.requests.at(-1)
+  h.render(hook,[round,user]);assert.equal(old.signal.aborted,true)
+  assert.equal(h.render().character,null)
+  b.requests.at(-1).resolve({data:sheetData({id:round,name:'Next'}),error:null});await settle()
+  old.resolve({data:sheetData({name:'Obsolete'}),error:null});await settle()
+  assert.equal(h.render().character.name,'Next')
+  h.render(hook,[round,'other-account']);assert.equal(h.render().character,null)
+  const accountRead=b.requests.at(-1)
+  h.render(hook,[round,undefined]);assert.equal(accountRead.signal.aborted,true)
+  accountRead.resolve({data:sheetData(),error:null});await settle();assert.equal(h.render().character,null)
+  const count=b.requests.length
+  await h.render().reload();assert.equal(b.requests.length,count)
+  h.cleanup()
+})
+
+test('in-flight reads and invalidations wait for all own writes, then reconcile canonical checks',async()=>{
+  const {b,h}=sheetSetup()
+  b.requests[0].resolve({data:sheetData(),error:null});await settle()
+  void h.render().reload();const staleRead=b.requests[1]
+  const finishFirst=h.render().beginWrite(),finishSecond=h.render().beginWrite()
+  h.render().updateCharacterDataField('check',true)
+  h.render().updateCharacterDataField('another',true)
+  for(let i=0;i<10;i++)void h.render().reload()
+  staleRead.resolve({data:sheetData(),error:null});await settle()
+  assert.equal(h.render().character.data.check,true)
+  assert.equal(h.render().character.data.another,true);assert.equal(b.requests.length,2)
+  finishFirst();await settle();assert.equal(b.requests.length,2)
+  finishSecond();assert.equal(b.requests.length,3)
+  b.requests[2].resolve({data:sheetData({data:{check:false,another:true}}),error:null});await settle()
+  assert.equal(h.render().character.data.check,false);assert.equal(h.render().character.data.another,true)
+  const finishAfterUnmount=h.render().beginWrite();h.cleanup();finishAfterUnmount()
+  assert.equal(b.requests.length,3)
+})
+
+test('character channels use exact scopes, reconcile focus/reconnect and clean up under StrictMode',()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock)
+  const {useCharacterRealtime:hook}=h.load('src/hooks/useCharacterRealtime.ts')
+  let refreshes=0
+  const options={characterId:other,userId:user,roundId:round,reload:()=>refreshes++}
+  h.render(hook,[options]);assert.equal(b.channels.length,3)
+  for(const c of b.channels) {
+    assert.equal(c.config.schema,'public')
+    assert.equal(c.config.filter,c.config.table==='characters'?`id=eq.${other}`:c.config.table==='rounds'?`id=eq.${round}`:`round_id=eq.${round}`)
+    assert.deepEqual(c.bindings.map(b=>b.config.event),c.config.table==='round_memberships'?['INSERT','UPDATE']:['UPDATE'])
+    c.cb();c.status('SUBSCRIBED')
+  }
+  clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'))
+  assert.equal(clock.pending(),1);clock.advance();assert.equal(refreshes,1)
+  clock.document.visibilityState='hidden';clock.window.dispatchEvent(new Event('focus'));clock.advance();assert.equal(refreshes,1)
+  clock.document.visibilityState='visible';clock.window.dispatchEvent(new Event('online'));clock.advance();assert.equal(refreshes,2)
+  h.render(hook,[{...options,roundId:null}]);assert.equal(b.removals.length,2)
+  h.render(hook,[{...options,roundId:other}]);assert.equal(b.channels.length,5)
+  b.channels[0].cb();h.replayEffects();clock.advance();assert.equal(refreshes,2)
+  const oldChannels=b.channels.slice(0,5)
+  for(const c of oldChannels){c.cb();c.status('SUBSCRIBED')}
+  clock.advance();assert.equal(refreshes,2)
+  h.render(hook,[{...options,userId:undefined}]);clock.window.dispatchEvent(new Event('focus'));clock.advance()
+  assert.equal(refreshes,2);assert.equal(b.removals.length,b.channels.length)
+  h.render(hook,[{...options,characterId:'invalid'}]);assert.equal(b.removals.length,b.channels.length)
+  h.cleanup();assert.equal(clock.pending(),0)
+})
+
+function sheetPageSetup() {
+  const b=backend(),clock=browserClock()
+  const route={characterId:other},auth={user:{id:user}}
+  const idle=()=>({isSubmitting:false,error:null,resetState(){}})
+  const h=harness(b.api,clock,{
+    'react-router-dom':{useParams:()=>route,useLocation:()=>({}),useNavigate:()=>()=>{},Link:'Link'},
+    '../auth/useAuth':{useAuth:()=>auth},
+    '../characterTemplates':{findCharacterTemplate:()=>({name:'Test',sections:[]})},
+    '../components/CharacterSheetRenderer':{CharacterSheetRenderer:'Sheet'},
+    '../components/CharacterRoundAssignment':{default:'Assignment'},
+    '../hooks/useCharacterPortrait':{useCharacterPortrait:()=>({portraitUrl:null,isLoading:false,error:null})},
+    ...Object.fromEntries(['useCopyCharacter','useSoftDeleteCharacter','useRemoveCharacterPortrait','useUploadCharacterPortrait'].map(name=>[`../hooks/${name}`,{[name]:idle}])),
+  })
+  const Page=h.load('src/pages/CharacterPage.tsx').default
+  const root=h.render(Page,[])
+  h.render(root.type,[root.props])
+  const resolveRead=async(data=sheetData(),error=null)=>{
+    b.requests.at(-1).resolve({data,error});await settle();return h.render()
+  }
+  const emit=()=>{b.channels.find(c=>c.config.table==='characters').cb();clock.advance()}
+  const sheet=()=>nodes(h.render()).find(n=>n.type==='Sheet')
+  const edit=()=>{nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Bearbeiten').props.onClick();return sheet()}
+  const warning=()=>nodes(h.render()).find(n=>n.props?.className==='character-remote-notice')
+  return {b,clock,h,root,Page,route,auth,resolveRead,emit,sheet,edit,warning}
+}
+
+test('read-mode character events update name/data/checks/assignment without replacing page identity',async()=>{
+  const {b,h,root,resolveRead,emit,sheet}=sheetPageSetup()
+  await resolveRead();assert.equal(sheet().props.mode,'view')
+  const initial=sheet().props.character
+  emit();assert.equal(sheet().props.character,initial)
+  await resolveRead(sheetData({name:'Changed',data:{check:true},round_id:null,round:null}))
+  assert.equal(sheet().props.character.name,'Changed');assert.equal(sheet().props.character.data.check,true)
+  assert.equal(nodes(h.render()).find(n=>n.type==='Assignment').props.character.round_id,null)
+  assert.equal(b.channels.length,3);assert.equal(b.removals.length,2)
+  assert.equal(root.props.characterId,other);h.cleanup()
+})
+
+test('remote edit conflict preserves drafts, blocks RPC save, and explicit reload adopts the server baseline',async()=>{
+  const {b,h,resolveRead,emit,sheet,edit,warning}=sheetPageSetup()
+  await resolveRead();edit()
+  sheet().props.onNameChange('Lokaler Name');sheet().props.onDataFieldChange('note','Lokaler Text')
+  emit();await resolveRead(sheetData({name:'Remote',data:{check:true,note:'Remote'}}))
+  assert.equal(sheet().props.draftName,'Lokaler Name');assert.equal(sheet().props.draftData.note,'Lokaler Text')
+  assert.equal(sheet().props.draftData.check,false);assert.ok(warning())
+  const before=b.requests.length
+  await nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  assert.equal(b.requests.length,before)
+  assert.equal(nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Speichern').props.disabled,true)
+  nodes(warning()).find(n=>n.type==='button').props.onClick()
+  await resolveRead(null,{message:'offline'})
+  assert.ok(warning());assert.equal(sheet().props.draftName,'Lokaler Name')
+  nodes(warning()).find(n=>n.type==='button').props.onClick()
+  await resolveRead(sheetData({name:'Latest',data:{check:true,note:'Latest'},updated_at:'new-revision'}))
+  assert.equal(sheet().props.draftName,'Latest');assert.equal(sheet().props.draftData.check,true)
+  assert.equal(warning(),undefined);assert.equal(sheet().props.mode,'edit')
+  h.cleanup()
+})
+
+test('unchanged refetch is not a conflict; own save and late own events do not create a warning',async()=>{
+  const {b,h,resolveRead,emit,sheet,edit,warning}=sheetPageSetup()
+  await resolveRead();edit();sheet().props.onNameChange('Saved')
+  emit();await resolveRead();assert.equal(warning(),undefined)
+  const saving=nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  const rpc=b.requests.at(-1);assert.equal(rpc.rpc,'update_character');assert.equal(rpc.args.p_name,'Saved')
+  assert.equal(rpc.args.p_data.note,'Server')
+  emit();assert.equal(b.requests.at(-1),rpc)
+  rpc.resolve({error:null});await saving
+  assert.equal(sheet().props.mode,'view');assert.equal(warning(),undefined)
+  await resolveRead(sheetData({name:'Saved',updated_at:'saved-revision'}))
+  edit();assert.equal(sheet().props.draftName,'Saved')
+  emit();await resolveRead(sheetData({name:'Saved',updated_at:'saved-revision'}))
+  assert.equal(warning(),undefined);h.cleanup()
+})
+
+test('own optimistic check plus concurrent events always ends with server state, including RPC failures',async()=>{
+  const {b,h,resolveRead,emit,sheet}=sheetPageSetup()
+  await resolveRead()
+  for(const fail of [false,true]) {
+    sheet().props.onCheckChange('check',true)
+    const rpc=b.requests.at(-1);assert.equal(rpc.rpc,'set_character_check')
+    assert.equal(sheet().props.character.data.check,true)
+    emit();assert.equal(b.requests.at(-1),rpc)
+    rpc.resolve({error:fail?{message:'failed'}:null});await settle()
+    assert.equal(b.requests.at(-1).table,'characters')
+    await resolveRead(sheetData({data:{check:false,note:'Concurrent canonical state'}}))
+    assert.equal(sheet().props.character.data.check,false)
+    assert.equal(sheet().props.character.data.note,'Concurrent canonical state')
+    if(fail)assert.match(textOf(h.render()),/Checkbox konnte nicht gespeichert/)
+  }
+  h.cleanup()
+})
+
+test('round lock retains a GM draft read-only; membership access loss clears content and retains recovery channel',async()=>{
+  const {b,clock,h,resolveRead,sheet,edit,warning}=sheetPageSetup()
+  await resolveRead(sheetData({owner_user_id:'someone-else'}));edit()
+  sheet().props.onNameChange('GM draft')
+  b.channels.find(c=>c.config.table==='rounds').cb();clock.advance()
+  await resolveRead(sheetData({owner_user_id:'someone-else',round:{locked_at:'locked'}}))
+  assert.equal(sheet().props.mode,'edit');assert.equal(sheet().props.draftName,'GM draft')
+  assert.equal(sheet().props.isDisabled,true);assert.ok(warning())
+  b.channels.find(c=>c.config.table==='round_memberships').cb();clock.advance()
+  await resolveRead(null)
+  assert.equal(sheet(),undefined);assert.match(textOf(h.render()),/Charakter nicht verfügbar/)
+  assert.equal(b.removals.length,0)
+  b.channels.find(c=>c.config.table==='round_memberships').cb();clock.advance()
+  await resolveRead(sheetData({owner_user_id:'someone-else'}))
+  assert.ok(sheet());h.cleanup()
+})
+
+test('character/account keys isolate draft and mutation lifetimes; background refresh leaves key stable',()=>{
+  const {h,root,Page,route,auth}=sheetPageSetup()
+  h.cleanup()
+  assert.equal(h.render(Page,[]).key,root.key)
+  route.characterId=round;assert.notEqual(h.render(Page,[]).key,root.key)
+  route.characterId=other;auth.user={id:'other-user'};assert.notEqual(h.render(Page,[]).key,root.key)
+  auth.user=undefined;assert.notEqual(h.render(Page,[]).key,root.key)
+})
+
+for(const [name,action,args,input] of [
+  ['useUpdateCharacter','updateCharacter',[],[other,'Name',{check:true}]],
+  ['useSetCharacterCheck','setCharacterCheck',[other],['check',true]],
+]) {
+  test(`${name}: pending RPC completion after unmount does not write component state`,async()=>{
+    const b=backend(),h=harness(b.api),hook=h.load(`src/hooks/${name}.ts`)[name]
+    const pending=h.render(hook,args)[action](...input)
+    h.cleanup();const writes=h.stateWriteCount()
+    b.requests[0].resolve({error:null});assert.equal(await pending,false)
+    assert.equal(h.stateWriteCount(),writes)
+  })
+}
+
+test('leaving edit mode after a remote conflict displays loaded server data and resets the next baseline',async()=>{
+  const {b,h,resolveRead,emit,sheet,edit,warning}=sheetPageSetup()
+  await resolveRead();edit();sheet().props.onNameChange('Discarded draft')
+  emit();await resolveRead(sheetData({name:'Remote',updated_at:'remote-version'}));assert.ok(warning())
+  nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Abbrechen').props.onClick()
+  assert.equal(sheet().props.mode,'view');assert.equal(sheet().props.character.name,'Remote')
+  assert.equal(b.requests.at(-1).table,'characters')
+  await resolveRead(sheetData({name:'Latest',updated_at:'latest-version'}));edit()
+  assert.equal(sheet().props.draftName,'Latest');assert.equal(warning(),undefined);h.cleanup()
+})
