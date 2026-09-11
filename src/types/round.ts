@@ -30,6 +30,7 @@ export type CreateRoundInput = {
 export type RoundDetails = RoundSummary & {
   description: string | null
   locked_reason: string | null
+  orphaned_at: string | null
 }
 
 export type AdminRound = RoundSummary & {

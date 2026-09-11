@@ -6,7 +6,9 @@ import EditRoundForm from '../components/EditRoundForm'
 import RoundCharactersSection from '../components/RoundCharactersSection'
 import { useRoundDetails } from '../hooks/useRoundDetails'
 import { useRoundMembers } from '../hooks/useRoundMembers'
-import { useRealtimeInvalidation } from '../hooks/useRealtimeInvalidation'
+import { useRoundRealtime } from '../hooks/useRoundRealtime'
+import { useRoundCharacters } from '../hooks/useRoundCharacters'
+import { useRoundDeletedPreparedCharacters } from '../hooks/useRoundDeletedPreparedCharacters'
 import { useRemoveRoundPlayer } from '../hooks/useRemoveRoundPlayer'
 import { useTransferGameMaster } from '../hooks/useTransferGameMaster'
 import type {
@@ -32,7 +34,7 @@ function RoundDetailsPage() {
   const { roundId } = useParams<{ roundId: string }>()
   const { user } = useAuth()
   const {
-    round,
+    round: loadedRound,
     membershipRole,
     isLoading,
     error,
@@ -44,14 +46,23 @@ function RoundDetailsPage() {
     error: membersError,
     reload: reloadMembers,
   } = useRoundMembers(roundId, user?.id)
-  useRealtimeInvalidation({
-    // useRoundDetails only returns a round for a valid ID and this user's membership.
-    scopeKey: user && round && round.id === roundId
-      ? `${user.id}:${round.id}`
-      : undefined,
-    table: 'round_memberships',
-    filter: `round_id=eq.${roundId}`,
-    onInvalidate: reloadMembers,
+  // A successful membership read can detect removal before the details fetch finishes.
+  const isMembershipMissing = !areMembersLoading && !membersError &&
+    !members.some(member => member.user_id === user?.id)
+  const round = isMembershipMissing ? null : loadedRound
+  const characterAccessScope = `${user?.id}:${membershipRole}`
+  const characterList = useRoundCharacters(round?.id, characterAccessScope)
+  const characterTrash = useRoundDeletedPreparedCharacters(
+    membershipRole === 'game_master' ? round?.id : undefined,
+    characterAccessScope,
+  )
+  useRoundRealtime({
+    roundId,
+    userId: user?.id,
+    reloadRound: reloadRoundDetails,
+    reloadMembers,
+    reloadCharacters: characterList.reload,
+    reloadTrash: characterTrash.reload,
   })
   const {
     isSubmitting: isRemovingPlayer,
@@ -102,6 +113,7 @@ function RoundDetailsPage() {
     if (wasRemoved) {
       setPlayerPendingRemovalId(null)
       reloadMembers()
+      characterList.reload()
     }
   }
 
@@ -347,6 +359,12 @@ function RoundDetailsPage() {
             )}
           </div>
         </header>
+        {round.orphaned_at && (
+          <p className="round-members-state" role="status">
+            Diese Runde hat derzeit keine Spielleitung und bleibt bis zur
+            Wiederherstellung archiviert.
+          </p>
+        )}
         {isRoundLocked && (
           <div className="locked-round-notice">
             <p>Diese Runde wurde administrativ gesperrt.</p>
@@ -401,9 +419,9 @@ function RoundDetailsPage() {
       {content}
       {round && (
         <RoundCharactersSection
-          key={`${round.id}:${membershipRole ?? 'none'}:${members
-            .map(({ user_id }) => user_id)
-            .join(',')}`}
+          key={`${user?.id}:${round.id}:${membershipRole ?? 'none'}`}
+          characterList={characterList}
+          characterTrash={characterTrash}
           currentUserId={user?.id}
           members={members}
           membershipRole={membershipRole}

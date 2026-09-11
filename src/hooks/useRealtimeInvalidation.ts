@@ -5,19 +5,27 @@ type RealtimeInvalidationOptions = {
   scopeKey: string | undefined
   table: string
   filter: string
+  includeInserts?: boolean
   onInvalidate: () => void
+  onSubscribed?: () => void
 }
 
-// UPDATE-only invalidation. Reading and request scheduling belong to the data hook.
+// Reading and request scheduling belong to the data/coordination hooks.
 export function useRealtimeInvalidation({
   scopeKey,
   table,
   filter,
+  includeInserts = false,
   onInvalidate,
+  onSubscribed,
 }: RealtimeInvalidationOptions) {
   const instanceId = useId()
   const generation = useRef(0)
   const invalidate = useEffectEvent(onInvalidate)
+  const subscribed = useEffectEvent(() => {
+    if (onSubscribed) onSubscribed()
+    else onInvalidate()
+  })
 
   useEffect(() => {
     if (!scopeKey) return
@@ -28,21 +36,27 @@ export function useRealtimeInvalidation({
     const notify = () => {
       if (active) invalidate()
     }
-    const channel = supabase
-      .channel(`invalidation:${instanceId}:${scopeKey}:${channelId}`)
-      .on(
+    const channel = supabase.channel(
+      `invalidation:${instanceId}:${scopeKey}:${channelId}`,
+    )
+    const events = includeInserts
+      ? ['INSERT', 'UPDATE'] as const
+      : ['UPDATE'] as const
+    for (const event of events) {
+      channel.on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table, filter },
+        { event, schema: 'public', table, filter },
         notify,
       )
-      .subscribe((status) => {
-        // Close the initial fetch/subscribe gap and reconcile after reconnects.
-        if (status === 'SUBSCRIBED') notify()
-      })
+    }
+    channel.subscribe((status) => {
+      // Close the initial fetch/subscribe gap and reconcile after reconnects.
+      if (active && status === 'SUBSCRIBED') subscribed()
+    })
 
     return () => {
       active = false
       void supabase.removeChannel(channel)
     }
-  }, [filter, instanceId, scopeKey, table])
+  }, [filter, includeInserts, instanceId, scopeKey, table])
 }

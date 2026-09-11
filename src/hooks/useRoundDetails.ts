@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type {
   RoundDetails,
@@ -36,114 +36,115 @@ export function useRoundDetails(
   userId: string | undefined,
 ) {
   const [state, setState] = useState<RoundDetailsState>(initialState)
-  const [reloadKey, setReloadKey] = useState(0)
+  const reloadRef = useRef<(() => void) | null>(null)
   const hasValidRoundId = isValidRoundId(roundId)
 
   useEffect(() => {
-    if (!userId || !hasValidRoundId) {
-      return
-    }
-
-    let isCurrentRequest = true
+    if (!userId || !hasValidRoundId) return
+    let active = true
+    let inFlight = false
+    let pending = false
+    let hasLoaded = false
+    let controller: AbortController | undefined
 
     const loadRoundDetails = async () => {
-      setState({
-        roundId,
-        userId,
-        round: null,
-        membershipRole: null,
-        isLoading: true,
-        error: null,
-      })
-
-      try {
-        const { data, error } = await supabase
-          .from('round_memberships')
-          .select(`
-            round_id,
-            role,
-            round:rounds!inner (
-              id,
-              name,
-              system,
-              description,
-              appointment,
-              status,
-              locked_at,
-              locked_reason,
-              created_at,
-              updated_at
-            )
-          `)
-          .eq('user_id', userId)
-          .eq('round_id', roundId)
-          .maybeSingle()
-          .overrideTypes<RoundDetailsMembership, { merge: false }>()
-
-        if (!isCurrentRequest) {
-          return
-        }
-
-        if (error) {
+      if (!active) return
+      pending = true
+      if (inFlight) return
+      inFlight = true
+      // Keep successful data visible; coalesce invalidations into a trailing fetch.
+      while (active && pending) {
+        pending = false
+        controller = new AbortController()
+        if (!hasLoaded) {
           setState({
             roundId,
             userId,
             round: null,
             membershipRole: null,
-            isLoading: false,
-            error: 'Die Runde konnte nicht geladen werden.',
+            isLoading: true,
+            error: null,
           })
-          return
         }
-
-        if (!data) {
-          setState({
-            roundId,
-            userId,
-            round: null,
-            membershipRole: null,
-            isLoading: false,
-            error: 'Die Runde ist nicht verfügbar.',
-          })
-          return
+        try {
+          const { data, error } = await supabase
+            .from('round_memberships')
+            .select(`
+              round_id,
+              role,
+              round:rounds!inner (
+                id,
+                name,
+                system,
+                description,
+                appointment,
+                status,
+                locked_at,
+                locked_reason,
+                orphaned_at,
+                created_at,
+                updated_at
+              )
+            `)
+            .eq('user_id', userId)
+            .eq('round_id', roundId)
+            .abortSignal(controller.signal)
+            .maybeSingle()
+            .overrideTypes<RoundDetailsMembership, { merge: false }>()
+          if (!active) return
+          if (error && error.code !== '42501') throw error
+          hasLoaded = true
+          if (!data) {
+            setState({
+              roundId,
+              userId,
+              round: null,
+              membershipRole: null,
+              isLoading: false,
+              error: 'Die Runde ist nicht verfügbar.',
+            })
+          } else {
+            setState({
+              roundId,
+              userId,
+              round: data.round,
+              membershipRole: data.role,
+              isLoading: false,
+              error: null,
+            })
+          }
+        } catch {
+          if (!active) return
+          // Network/server errors do not erase the last successful result.
+          if (!hasLoaded) {
+            setState({
+              roundId,
+              userId,
+              round: null,
+              membershipRole: null,
+              isLoading: false,
+              error: 'Die Runde konnte nicht geladen werden.',
+            })
+          }
         }
-
-        setState({
-          roundId,
-          userId,
-          round: data.round,
-          membershipRole: data.role,
-          isLoading: false,
-          error: null,
-        })
-      } catch {
-        if (!isCurrentRequest) {
-          return
-        }
-
-        setState({
-          roundId,
-          userId,
-          round: null,
-          membershipRole: null,
-          isLoading: false,
-          error: 'Die Runde konnte nicht geladen werden.',
-        })
       }
+      inFlight = false
     }
 
+    reloadRef.current = () => {
+      void loadRoundDetails()
+    }
     void loadRoundDetails()
-
     return () => {
-      isCurrentRequest = false
+      active = false
+      reloadRef.current = null
+      controller?.abort()
     }
-  }, [hasValidRoundId, reloadKey, roundId, userId])
+  }, [hasValidRoundId, roundId, userId])
 
   const reload = useCallback(() => {
-    if (userId && isValidRoundId(roundId)) {
-      setReloadKey((currentKey) => currentKey + 1)
-    }
-  }, [roundId, userId])
+    reloadRef.current?.()
+  }, [])
 
   if (!userId) {
     return {

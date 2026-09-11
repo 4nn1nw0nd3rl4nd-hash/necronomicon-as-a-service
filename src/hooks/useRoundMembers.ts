@@ -92,7 +92,7 @@ export function useRoundMembers(
             return
           }
 
-          if (error) {
+          if (error && error.code !== '42501') {
             throw error
           }
 
@@ -100,7 +100,7 @@ export function useRoundMembers(
           setState({
             roundId,
             userId,
-            members: data,
+            members: data ?? [],
             isLoading: false,
             error: null,
           })

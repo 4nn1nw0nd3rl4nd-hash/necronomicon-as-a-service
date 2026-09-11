@@ -4,8 +4,8 @@ import { findCharacterTemplate } from '../characterTemplates'
 import { useAssignPreparedCharacter } from '../hooks/useAssignPreparedCharacter'
 import { useAssignPreparedCharacterKeepCopy } from '../hooks/useAssignPreparedCharacterKeepCopy'
 import { useCopyCharacter } from '../hooks/useCopyCharacter'
-import { useRoundCharacters } from '../hooks/useRoundCharacters'
-import { useRoundDeletedPreparedCharacters } from '../hooks/useRoundDeletedPreparedCharacters'
+import type { useRoundCharacters } from '../hooks/useRoundCharacters'
+import type { useRoundDeletedPreparedCharacters } from '../hooks/useRoundDeletedPreparedCharacters'
 import { useRestoreCharacter } from '../hooks/useRestoreCharacter'
 import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
 import { useSoftDeleteCharacter } from '../hooks/useSoftDeleteCharacter'
@@ -21,6 +21,8 @@ import type {
 } from '../types/round'
 
 type RoundCharactersSectionProps = {
+  characterList: ReturnType<typeof useRoundCharacters>
+  characterTrash: ReturnType<typeof useRoundDeletedPreparedCharacters>
   roundId: string
   roundStatus: RoundStatus
   isRoundLocked: boolean
@@ -73,6 +75,8 @@ function getActiveCharacterStatus(
 }
 
 function RoundCharactersSection({
+  characterList,
+  characterTrash,
   roundId,
   roundStatus,
   isRoundLocked,
@@ -87,16 +91,13 @@ function RoundCharactersSection({
     isGameMaster && searchParams.get('characterView') === 'trash'
       ? 'trash'
       : 'characters'
-  const { characters, isLoading, error, reload } =
-    useRoundCharacters(roundId)
+  const { characters, isLoading, error, reload } = characterList
   const {
     characters: deletedPreparedCharacters,
     isLoading: isTrashLoading,
     error: trashError,
     reload: reloadTrash,
-  } = useRoundDeletedPreparedCharacters(
-    isGameMaster ? roundId : undefined,
-  )
+  } = characterTrash
   const {
     isSubmitting: isAssigningWithoutCopy,
     error: assignmentWithoutCopyError,
@@ -634,7 +635,7 @@ function RoundCharactersSection({
                               setSelectedUserId(event.target.value)
                               resetAssignmentState()
                             }}
-                            value={selectedUserId}
+                            value={selectedMember ? selectedUserId : ''}
                           >
                             <option value="">Keine Auswahl</option>
                             {members.map((member) => (
@@ -654,7 +655,7 @@ function RoundCharactersSection({
                         {members.length > 0 && (
                           <button
                             className="round-character-assignment-primary"
-                            disabled={!selectedUserId}
+                            disabled={!selectedMember}
                             onClick={() => setIsConfirmingAssignment(true)}
                             type="button"
                           >
