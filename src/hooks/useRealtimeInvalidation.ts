@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 type RealtimeInvalidationOptions = {
   scopeKey: string | undefined
   table: string
-  filter: string
+  filter: string | readonly string[]
   includeInserts?: boolean
   onInvalidate: () => void
   onSubscribed?: () => void
@@ -21,6 +21,9 @@ export function useRealtimeInvalidation({
 }: RealtimeInvalidationOptions) {
   const instanceId = useId()
   const generation = useRef(0)
+  // Multiple exact filters share one channel; stable contents avoid rejoining
+  // when a background SELECT returns a new array with the same IDs.
+  const filterKey = JSON.stringify(typeof filter === 'string' ? [filter] : filter)
   const invalidate = useEffectEvent(onInvalidate)
   const subscribed = useEffectEvent(() => {
     if (onSubscribed) onSubscribed()
@@ -29,6 +32,8 @@ export function useRealtimeInvalidation({
 
   useEffect(() => {
     if (!scopeKey) return
+    const filters: string[] = JSON.parse(filterKey)
+    if (filters.length === 0) return
 
     let active = true
     // StrictMode can restart the effect before asynchronous channel removal finishes.
@@ -43,11 +48,13 @@ export function useRealtimeInvalidation({
       ? ['INSERT', 'UPDATE'] as const
       : ['UPDATE'] as const
     for (const event of events) {
-      channel.on(
-        'postgres_changes',
-        { event, schema: 'public', table, filter },
-        notify,
-      )
+      for (const filter of filters) {
+        channel.on(
+          'postgres_changes',
+          { event, schema: 'public', table, filter },
+          notify,
+        )
+      }
     }
     channel.subscribe((status) => {
       // Close the initial fetch/subscribe gap and reconcile after reconnects.
@@ -58,5 +65,5 @@ export function useRealtimeInvalidation({
       active = false
       void supabase.removeChannel(channel)
     }
-  }, [filter, includeInserts, instanceId, scopeKey, table])
+  }, [filterKey, includeInserts, instanceId, scopeKey, table])
 }

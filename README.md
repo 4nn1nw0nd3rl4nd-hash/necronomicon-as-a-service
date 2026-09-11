@@ -283,3 +283,46 @@ Für gemeinsame Character-Rechte beispielsweise Owner und GM derselben ungesperr
 | I: Navigation/Logout | Mit laufender Anfrage Charakter wechseln oder ausloggen. Keine alten Inhalte/Entwürfe in der neuen Ansicht, keine verbleibenden Channels der alten Seite. StrictMode und Reconnect mitprüfen. |
 
 Den Konflikthinweis zusätzlich auf Desktop und schmalem Mobilgerät mit Tastatur und langen Texten prüfen. Diese manuellen Tests wurden durch die isolierte Testumgebung nicht ausgeführt. Portrait-Realtime und Portrait-Versionierung bleiben Phase 2.16e vorbehalten; globale Übersichten, Profile und Administration werden hier nicht live synchronisiert.
+
+## Persönliche Übersichten und Portrait-Abgleich (Phase 2.16e)
+
+`RoundsPage` und `CharactersPage` verwenden `usePersonalOverviewRealtime`. Pro geöffneter Übersicht gibt es einen Channel für eigene `round_memberships INSERT/UPDATE` (`user_id=eq.<userId>`) und, sobald Runden bekannt sind, einen Channel für `rounds UPDATE` mit einzelnen exakten ID-Filtern für diese Runden. Die sortierte, deduplizierte ID-Menge bestimmt die Bindings; ein unveränderter Refetch oder Tabwechsel baut sie nicht neu auf. Es gibt keine globale Runden-Subscription. Neue Mitgliedschaften werden über den Nutzerfilter erkannt und erweitern anschließend den Rundenscope.
+
+Auf „Meine Charaktere“ kommt ein gemeinsamer `characters INSERT/UPDATE`-Channel mit `owner_user_id=eq.<userId>` hinzu. Er invalidiert sowohl die aktive Liste als auch den Papierkorb, ohne einen `deleted_at`-Filter auf der Subscription. Daher werden Soft Delete und Restore über denselben Channel erfasst. Auch der Eintritt eines vorbereiteten Charakters von `owner_user_id = NULL` in den Nutzer-Scope passt auf den neuen Owner-Wert. Autorisierte SELECTs bestimmen die tatsächlichen Listen; Event-Payloads werden nicht übernommen. Karten zeigen Runden-, aber keine Profilnamen; eine `profiles`-Subscription ist nicht erforderlich.
+
+Alle drei Listen-Hooks unterstützen stille Refetches, höchstens einen laufenden Request und einen vorgemerkten Folgeabruf. Events werden über 100 ms gebündelt. Archivstatus, Rollen und Rundennamen werden aus dem vorhandenen Join geladen; die bestehende UI filtert daraus aktuelle Runden und Archiv. Tabs, Aufklappzustände und Formularkomponenten bleiben bestehen. Netzwerkfehler erhalten erfolgreiche Listendaten, bestätigter Zugriffsverlust beziehungsweise eine erfolgreiche leere Antwort entfernt sie. Nutzerwechsel/Logout ignorieren alte Antworten und brechen laufende Reads ab.
+
+Membership-DELETE, physischer Character-Purge und durch RLS/Scope-Verlassen ausbleibende Events werden durch Fokus, Visibility-Rückkehr, Online und Reconnect abgeglichen. Eine nach Zugriffverlust aus dem bekannten Rundenscope entfernte Runde kann ebenfalls erst bei diesem Abgleich wieder erscheinen. Kein Polling und keine DELETE-Subscription. `useRoundDeletedPreparedCharacters` und seine bestehende Anbindung über `useRoundRealtime` bleiben unverändert; es wurde keine doppelte Subscription hinzugefügt.
+
+### Portraits: Reconciliation, kein sofortiges Storage-Realtime
+
+Der private Bucket heißt `character-portraits`; der Objektpfad ist `<characterId>/portrait`. Upload/Replace verwendet weiterhin `upsert: true`, Löschen weiterhin `storage.remove`. Die Anzeige bleibt eine lokale Blob-URL aus einem authentifizierten Download. Es werden keine öffentlichen URLs erzeugt.
+
+Im aktuellen Character-Schema existiert kein Portrait-Versionsfeld. Die Storage-Aktionen verändern auch keine Character-Metadaten. Ein künstlicher Aufruf von `update_character` wäre ungeeignet: Er ersetzt das gesamte JSON-Dokument und würde unnötige Konflikte erzeugen. Deshalb wird **Strategie C** verwendet: Der vorhandene CharacterPage-Abgleich lädt bei Fokus-/Visibility-Rückkehr, Online und Channel-(Re-)Subscribe auch die Portrait-Metadaten neu. Normale Character-/Check-Events lösen keinen Portrait-Download aus. Eine zweite, dauerhaft fokussierte Session erhält reine Portraitänderungen ohne eines dieser Ereignisse **nicht sofort live**.
+
+Der Portrait-Hook listet ausschließlich den konkreten Charakterordner über die vorhandenen privaten Storage-Rechte. Bei unveränderter Objekt-ID, `updated_at` und gegebenenfalls ETag wird kein neuer Blob heruntergeladen. Bei einer Änderung nutzt der Download `cacheNonce` aus diesen echten Storage-Metadaten sowie `cache: 'no-store'`; siehe [Supabase Storage download](https://supabase.com/docs/reference/javascript/file-buckets-download). Die neue Blob-URL ersetzt die alte, die anschließend freigegeben wird. Nach lokalem Upload wird der Versionsvergleich für einen frischen Abruf zurückgesetzt. Nach lokalem Löschen wird die Anzeige sofort geleert; ältere Antworten dürfen das Bild nicht zurückbringen. Hintergrundfehler behalten das Bild, bestätigte Nichtverfügbarkeit/Berechtigungsfehler und Scopewechsel entfernen es. Requests, Blob-URLs und Event-Timer werden beim Unmount bereinigt.
+
+Die bestehende Standard-Cachezeit beim Upload war ohne Versionsparameter eine mögliche Quelle alter Bilder; der konkrete Browser-/CDN-Fall wurde hier nicht live reproduziert. Der neue Downloadpfad vermeidet Browsercache-Wiederverwendung und trennt CDN-Cacheeinträge anhand echter Objektversionen, ohne zufällige Parameter bei jedem Render. Abgleiche prüfen Metadaten, statt unveränderte Bilder immer erneut herunterzuladen.
+
+Keine `storage.objects`-Publication oder -Subscription: Für den gewählten Abgleich genügt die bestehende autorisierte Storage-API, ohne zusätzliche Metadatenzustellung oder Änderungen an Storage-RLS/Publications. Für garantiert sofortige Portrait-Invalidierung wäre als separater DB-Schritt eine dedizierte, autorisiert gepflegte Portrait-Version mit gesichertem Signal nach erfolgreichen Storage-Writes zu entwerfen. Dies wurde **nicht** implementiert; für den hier gewählten Abgleich ist keine Datenbankänderung erforderlich.
+
+Benötigte Publication-Tabellen bleiben `round_memberships`, `rounds` und `characters`; die vorhandenen Migrationen decken sie ab. Keine neue Migration, keine RLS-/Grant-Änderung und kein db push. Bestehende Runden- und Charakterbogen-Channels bleiben erhalten. Vollständiges Profil-/Admin-Realtime, administrative Übersichten und Recovery bleiben Phase 2.16f vorbehalten.
+
+### MANUAL: Phase 2.16e mit zwei Sessions auf Staging
+
+Persönliche Übersichten mit zwei Sessions desselben Accounts prüfen; für Mitgliedschafts-/Prepared-Aktionen zusätzlich einen berechtigten GM verwenden. Für Portraits können Owner und GM desselben Charakters verwendet werden. Echte Event-Zustellung, Storage/CDN-Verhalten und Desktop-/Mobilansichten sind manuell zu prüfen; die isolierten Tests ersetzen diese Prüfungen nicht.
+
+| Fall | Ablauf und erwartetes Ergebnis |
+| --- | --- |
+| A: Meine Runden | Runde umbenennen/archivieren/entarchivieren. Die zweite Übersicht aktualisiert Karten und Archivzuordnung ohne Browser-Reload; den gewählten Tab beibehalten. |
+| B: Mitglied hinzufügen | GM fügt den Nutzer hinzu. Seine offene Übersicht zeigt die neue Runde und ab dann auch deren Änderungen. |
+| C: Mitglied entfernen | Mitglied entfernen; nach Fokus, Visibility-Rückkehr oder Reconnect verschwindet die Runde aus dessen Übersicht. |
+| D: Neuer Charakter | Charakter erstellen; zweite persönliche Übersicht zeigt ihn ohne Reload. |
+| E: Prepared Character | GM weist einen vorbereiteten Charakter dem Nutzer zu. Er erscheint in dessen persönlicher Übersicht. Den Eintritt NULL → Owner mit echtem Backend prüfen. |
+| F: Soft Delete | Charakter löschen. Er verschwindet aus der aktiven Liste und erscheint im Papierkorb der zweiten Session. |
+| G: Restore/Purge | Wiederherstellen bewegt ihn zurück. Physischer Purge muss spätestens nach Fokus/Reconnect aus dem Papierkorb verschwinden. GM-Papierkorb als Regression ebenfalls prüfen. |
+| H: Portrait-Upload | A lädt ein Portrait hoch. A sieht es nach dem Abruf; B nach Fokus-/Visibility-/Reconnect-Abgleich. Ohne Abgleich wird keine sofortige Zustellung zugesichert. |
+| I: Portrait-Replace | Deutlich anderes Bild hochladen. Nach Abgleich erscheint die neue Version, kein altes Browser-/CDN-Bild. Unveränderten Abgleich wiederholen: nur Metadatenabruf, kein weiterer Bilddownload. |
+| J: Portrait-Delete | A löscht das Portrait. A zeigt sofort den Leerzustand, B nach Abgleich. Eine verspätete frühere Leseantwort darf das Bild nicht wiederherstellen. |
+| K: Tabs/UI | Archiv/Papierkorb auswählen, „Neue Runde anlegen“ öffnen und ausfüllen bzw. Restore-Bestätigung öffnen. Hintergrundänderungen dürfen Tab, Eingaben, Aufklappzustand und Fokus nicht zurücksetzen. Desktop und Mobil prüfen. |
+| L: Logout/Navigation | Während laufender Reads Charakter/Account wechseln oder ausloggen. Keine alten Daten/Bilder, alte Channels und Requests bereinigt; StrictMode und Reconnect mitprüfen. |

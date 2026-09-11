@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import CreateRoundForm from '../components/CreateRoundForm'
 import { useMyRounds } from '../hooks/useMyRounds'
+import { usePersonalOverviewRealtime } from '../hooks/usePersonalOverviewRealtime'
 import type {
   RoundMembershipRole,
   RoundStatus,
@@ -27,6 +28,7 @@ function getStatusLabel(status: RoundStatus) {
 function RoundsPage() {
   const { user } = useAuth()
   const { rounds, isLoading, error, reload } = useMyRounds(user?.id)
+  usePersonalOverviewRealtime({ userId: user?.id, roundIds: rounds.map(r => r.round_id), reloadRounds: reload })
   const [view, setView] = useState<RoundsView>('rounds')
   const createDisclosureRef = useRef<HTMLDetailsElement>(null)
   const regularRounds = rounds.filter(

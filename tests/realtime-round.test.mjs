@@ -732,7 +732,7 @@ test('character channels use exact scopes, reconcile focus/reconnect and clean u
   h.cleanup();assert.equal(clock.pending(),0)
 })
 
-function sheetPageSetup() {
+function sheetPageSetup(overrides = {}) {
   const b=backend(),clock=browserClock()
   const route={characterId:other},auth={user:{id:user}}
   const idle=()=>({isSubmitting:false,error:null,resetState(){}})
@@ -744,6 +744,7 @@ function sheetPageSetup() {
     '../components/CharacterRoundAssignment':{default:'Assignment'},
     '../hooks/useCharacterPortrait':{useCharacterPortrait:()=>({portraitUrl:null,isLoading:false,error:null})},
     ...Object.fromEntries(['useCopyCharacter','useSoftDeleteCharacter','useRemoveCharacterPortrait','useUploadCharacterPortrait'].map(name=>[`../hooks/${name}`,{[name]:idle}])),
+    ...overrides,
   })
   const Page=h.load('src/pages/CharacterPage.tsx').default
   const root=h.render(Page,[])
@@ -873,4 +874,213 @@ test('leaving edit mode after a remote conflict displays loaded server data and 
   assert.equal(b.requests.at(-1).table,'characters')
   await resolveRead(sheetData({name:'Latest',updated_at:'latest-version'}));edit()
   assert.equal(sheet().props.draftName,'Latest');assert.equal(warning(),undefined);h.cleanup()
+})
+
+for(const [name,key,good] of [
+  ['useMyRounds','rounds',[roundData()]],
+  ['useMyCharacters','characters',[character()]],
+  ['useMyDeletedCharacters','characters',[{...character(),deleted_at:'today'}]],
+]) {
+  test(`${name}: silent refresh, trailing read, errors, account change and logout cleanup`,async()=>{
+    const auth={user:{id:user}},b=backend(),h=harness(b.api,{}, {'../auth/useAuth':{useAuth:()=>auth}})
+    const hook=h.load(`src/hooks/${name}.ts`)[name]
+    h.render(hook,[user]);b.requests[0].resolve({data:good,error:null});await settle()
+    const before=h.render()[key]
+    for(let i=0;i<10;i++)h.render().reload()
+    assert.equal(b.requests.length,2);assert.equal(h.render()[key],before);assert.equal(h.render().isLoading,false)
+    b.requests[1].resolve({data:good,error:null});await settle();assert.equal(b.requests.length,3)
+    b.requests[2].reject(Error('offline'));await settle();assert.equal(h.render()[key],good)
+    h.render().reload();b.requests[3].resolve({data:[],error:null});await settle();assert.equal(h.render()[key].length,0)
+    h.render().reload();const old=b.requests.at(-1)
+    auth.user={id:'next-user'};h.render(hook,['next-user']);assert.equal(old.signal.aborted,true)
+    old.resolve({data:good,error:null});await settle();assert.equal(h.render()[key].length,0)
+    const next=b.requests.at(-1);auth.user=undefined;h.render(hook,[undefined]);assert.equal(next.signal.aborted,true)
+    next.resolve({data:good,error:null});await settle();assert.equal(h.render()[key].length,0)
+    const count=b.requests.length;h.render().reload();assert.equal(b.requests.length,count);h.cleanup()
+  })
+}
+
+test('overview channels are user/round scoped, stable across reorder, and reconcile without DELETE',()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock)
+  const hook=h.load('src/hooks/usePersonalOverviewRealtime.ts').usePersonalOverviewRealtime
+  const calls={rounds:0,characters:0,trash:0}
+  const options={userId:user,roundIds:[round,other],reloadRounds:()=>calls.rounds++,reloadCharacters:()=>calls.characters++,reloadTrash:()=>calls.trash++}
+  h.render(hook,[options]);assert.equal(b.channels.length,3)
+  const members=b.channels.find(c=>c.config.table==='round_memberships')
+  const rounds=b.channels.find(c=>c.config.table==='rounds')
+  const characters=b.channels.find(c=>c.config.table==='characters')
+  assert.equal(members.config.filter,`user_id=eq.${user}`)
+  assert.equal(characters.config.filter,`owner_user_id=eq.${user}`)
+  assert.deepEqual(rounds.bindings.map(x=>x.config.filter),[round,other].sort().map(id=>`id=eq.${id}`))
+  for(const c of b.channels)for(const binding of c.bindings)assert.ok(['INSERT','UPDATE'].includes(binding.config.event))
+  members.bindings[0].cb();rounds.cb();clock.advance();assert.deepEqual(calls,{rounds:1,characters:0,trash:0})
+  characters.bindings[0].cb();characters.cb();clock.advance();assert.deepEqual(calls,{rounds:1,characters:1,trash:1})
+  h.render(hook,[{...options,roundIds:[other,round,round]}]);assert.equal(b.channels.length,3)
+  h.render(hook,[{...options,roundIds:[]}]);assert.equal(b.removals.length,1);assert.equal(b.channels.length,3)
+  clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'))
+  clock.window.dispatchEvent(new Event('online'));members.status('SUBSCRIBED');clock.advance()
+  assert.deepEqual(calls,{rounds:2,characters:2,trash:2})
+  h.replayEffects();const count=calls.rounds
+  for(const c of b.channels.slice(0,3)){c.cb();c.status('SUBSCRIBED')}
+  clock.advance();assert.equal(calls.rounds,count)
+  h.render(hook,[{...options,userId:undefined}]);clock.window.dispatchEvent(new Event('focus'));clock.advance()
+  assert.equal(calls.rounds,count);assert.equal(b.removals.length,b.channels.length);h.cleanup()
+})
+
+test('round overview adopts membership/archiving and preserves archive tab and create disclosure identity',async()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock,{
+    '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+    'react-router-dom':{Link:'Link'},
+    '../components/CreateRoundForm':{default:'CreateRoundForm'},
+  })
+  const Page=h.load('src/pages/RoundsPage.tsx').default
+  h.render(Page,[]);b.requests[0].resolve({data:[],error:null});await settle();h.render()
+  assert.equal(b.channels.length,1,'no global rounds channel for empty memberships')
+  b.channels[0].bindings[0].cb();clock.advance()
+  b.requests.at(-1).resolve({data:[roundData()],error:null});await settle()
+  let tree=h.render();assert.match(textOf(tree),/Test-Runde/)
+  const disclosure=nodes(tree).find(n=>n.type==='details');disclosure.props.ref.current={open:true}
+  const create=nodes(tree).find(n=>n.type==='CreateRoundForm')
+  nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Archiv').props.onClick()
+  b.channels.find(c=>c.config.table==='rounds').cb();clock.advance()
+  assert.equal(nodes(h.render()).find(n=>n.type==='details').props.ref,disclosure.props.ref)
+  b.requests.at(-1).resolve({data:[roundData('game_master',{status:'archived'})],error:null});await settle()
+  tree=h.render();assert.match(textOf(tree),/Test-Runde/)
+  assert.equal(nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Archiv').props['aria-pressed'],true)
+  assert.equal(nodes(tree).find(n=>n.type==='CreateRoundForm').key,create.key)
+  assert.equal(nodes(tree).find(n=>n.type==='details').props.ref.current.open,true)
+  b.channels.find(c=>c.config.table==='rounds').cb();clock.advance()
+  b.requests.at(-1).resolve({data:[roundData('game_master',{status:'paused'})],error:null});await settle()
+  assert.match(textOf(h.render()),/keine archivierten Runden/)
+  clock.window.dispatchEvent(new Event('focus'));clock.advance()
+  b.requests.at(-1).resolve({data:[],error:null});await settle();h.render()
+  assert.equal(b.removals.length,1);h.cleanup()
+})
+
+test('character overview INSERT, soft delete and restore update both lists while trash tab/confirmation stay stable',async()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock,{
+    '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+    'react-router-dom':{Link:'Link'},
+    '../characterTemplates':{findCharacterTemplate:()=>({name:'Test'})},
+  })
+  const Page=h.load('src/pages/CharactersPage.tsx').default
+  const active=character('Test character'),deleted={...active,deleted_at:new Date().toISOString()}
+  const resolveLists=async(start,live,trash)=>{
+    for(const r of b.requests.slice(start))r.resolve({data:r.table==='round_memberships'?[]:r.deleted_at===null?live:trash,error:null})
+    await settle();return h.render()
+  }
+  h.render(Page,[]);await resolveLists(0,[],[])
+  const c=b.channels.find(c=>c.config.table==='characters')
+  let start=b.requests.length;c.bindings[0].cb();clock.advance()
+  await resolveLists(start,[active],[]);assert.match(textOf(h.render()),/Test character/)
+  start=b.requests.length;c.cb();clock.advance();assert.match(textOf(h.render()),/Test character/)
+  await resolveLists(start,[],[deleted]);assert.match(textOf(h.render()),/noch keine Charaktere/)
+  nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Papierkorb').props.onClick()
+  nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Wiederherstellen').props.onClick()
+  start=b.requests.length;c.cb();clock.advance();await resolveLists(start,[],[deleted])
+  assert.ok(nodes(h.render()).some(n=>n.type==='button'&&textOf(n)==='Abbrechen'))
+  start=b.requests.length;c.cb();clock.advance();await resolveLists(start,[active],[])
+  assert.match(textOf(h.render()),/Papierkorb ist leer/)
+  assert.equal(nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Papierkorb').props['aria-pressed'],true)
+  nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Charaktere').props.onClick()
+  assert.match(textOf(h.render()),/Test character/);h.cleanup()
+})
+
+function portraitSetup() {
+  const requests=[],created=[],revoked=[]
+  const bucket={}
+  for(const method of ['list','download','upload','remove'])bucket[method]=(...args)=>new Promise((resolve,reject)=>requests.push({method,args,resolve,reject}))
+  const api={storage:{from(name){assert.equal(name,'character-portraits');return bucket}}}
+  const urls={createObjectURL(blob){const url=`blob:${created.length}`;created.push({blob,url});return url},revokeObjectURL(url){revoked.push(url)}}
+  const h=harness(api,{URL:urls}),hook=h.load('src/hooks/useCharacterPortrait.ts').useCharacterPortrait
+  const metadata=v=>[{name:'portrait',id:'object',updated_at:v,metadata:{eTag:v}}]
+  const finishImage=async(v)=>{
+    requests.at(-1).resolve({data:metadata(v),error:null});await settle()
+    assert.equal(requests.at(-1).method,'download')
+    requests.at(-1).resolve({data:`image-${v}`,error:null});await settle();return h.render()
+  }
+  h.render(hook,[other,user])
+  return {api,h,hook,requests,created,revoked,metadata,finishImage}
+}
+
+test('portrait reconciliation skips unchanged blobs, versions replacements, and clears remotely removed images',async()=>{
+  const {h,requests,created,revoked,metadata,finishImage}=portraitSetup()
+  await finishImage('v1');const first=h.render().portraitUrl
+  assert.equal(requests[1].args[0],`${other}/portrait`)
+  assert.equal(requests[1].args[2].cache,'no-store');assert.ok(requests[1].args[1].cacheNonce.includes('v1'))
+  h.render().reconcile();assert.equal(h.render().portraitUrl,first);assert.equal(h.render().isLoading,false)
+  requests.at(-1).resolve({data:metadata('v1'),error:null});await settle();assert.equal(created.length,1)
+  h.render().reconcile();await finishImage('v2')
+  assert.notEqual(h.render().portraitUrl,first);assert.deepEqual(revoked,[first])
+  assert.ok(requests.at(-1).args[1].cacheNonce.includes('v2'))
+  h.render().reconcile();requests.at(-1).reject(Error('offline'));await settle();assert.equal(h.render().portraitUrl,'blob:1')
+  h.render().reconcile();requests.at(-1).resolve({data:[],error:null});await settle()
+  assert.equal(h.render().portraitUrl,null);assert.equal(revoked.length,2);h.cleanup()
+})
+
+test('own portrait reload supersedes old reads; delete cannot be undone by stale responses; scope/unmount abort',async()=>{
+  const {h,hook,requests,created,revoked,metadata,finishImage}=portraitSetup()
+  await finishImage('old');h.render().reconcile();const oldList=requests.at(-1)
+  h.render().reload();oldList.resolve({data:metadata('old'),error:null});await settle()
+  assert.equal(requests.at(-1).method,'list');await finishImage('new')
+  h.render().reload();requests.at(-1).resolve({data:metadata('third'),error:null});await settle()
+  const obsoleteDownload=requests.at(-1);h.render().clearPortrait()
+  assert.equal(obsoleteDownload.args[2].signal.aborted,true)
+  obsoleteDownload.resolve({data:'deleted image',error:null});await settle();assert.equal(h.render().portraitUrl,null)
+  assert.equal(created.length,2);assert.equal(revoked.length,2)
+  h.render().reconcile();const oldScope=requests.at(-1);h.render(hook,[round,user])
+  assert.equal(oldScope.args[2].signal.aborted,true)
+  oldScope.resolve({data:metadata('obsolete'),error:null});await settle();assert.equal(h.render().portraitUrl,null)
+  await finishImage('next');h.cleanup();const writes=h.stateWriteCount()
+  h.render().reconcile();assert.equal(h.stateWriteCount(),writes);assert.equal(revoked.length,3)
+})
+
+test('portrait StrictMode cleans URLs/requests; permission failures revoke displayed content',async()=>{
+  const {h,requests,revoked,metadata,finishImage}=portraitSetup()
+  const initial=requests[0];h.replayEffects();assert.equal(initial.args[2].signal.aborted,true)
+  initial.resolve({data:metadata('obsolete'),error:null});await settle()
+  await finishImage('current');h.render().reconcile()
+  requests.at(-1).resolve({data:null,error:{statusCode:'403'}});await settle()
+  assert.equal(h.render().portraitUrl,null);assert.ok(h.render().error);assert.equal(revoked.length,1)
+  h.cleanup()
+})
+
+test('portrait reconciles on focus/visible/online/subscription reconnect, not on every character check',()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock)
+  const hook=h.load('src/hooks/useCharacterRealtime.ts').useCharacterRealtime
+  let portraits=0,characters=0
+  h.render(hook,[{characterId:other,userId:user,roundId:round,reload:()=>characters++,reconcilePortrait:()=>portraits++}])
+  b.channels[0].cb();clock.advance();assert.equal(characters,1);assert.equal(portraits,0)
+  clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'))
+  for(const c of b.channels)c.status('SUBSCRIBED')
+  clock.window.dispatchEvent(new Event('online'));clock.advance();assert.equal(portraits,1)
+  h.cleanup();clock.window.dispatchEvent(new Event('focus'));clock.advance();assert.equal(portraits,1)
+})
+
+test('CharacterPage own portrait upload/replace force reload; successful remove clears the image',async()=>{
+  let reloads=0,clears=0
+  const storageRequests=[]
+  const {b,h,resolveRead}=sheetPageSetup({
+    '../hooks/useUploadCharacterPortrait':undefined,
+    '../hooks/useRemoveCharacterPortrait':undefined,
+    '../hooks/useCharacterPortrait':{useCharacterPortrait:()=>({
+      portraitUrl:'blob:existing',isLoading:false,error:null,
+      reload:()=>reloads++,reconcile(){},clearPortrait:()=>clears++,
+    })},
+  })
+  b.api.storage={from(bucket){assert.equal(bucket,'character-portraits');return {
+    upload:(...args)=>new Promise(resolve=>storageRequests.push({method:'upload',args,resolve})),
+    remove:(...args)=>new Promise(resolve=>storageRequests.push({method:'remove',args,resolve})),
+  }}}
+  await resolveRead()
+  const file={type:'image/png',size:1024}
+  nodes(h.render()).find(n=>n.type==='input'&&n.props.type==='file').props.onChange({target:{files:[file],value:'selected'}})
+  const upload=storageRequests.at(-1)
+  assert.equal(upload.args[0],`${other}/portrait`);assert.equal(upload.args[2].upsert,true)
+  assert.equal(reloads,0);upload.resolve({error:null});await settle();assert.equal(reloads,1)
+  nodes(h.render()).find(n=>n.type==='button'&&textOf(n)==='Portrait entfernen').props.onClick()
+  nodes(h.render()).find(n=>n.props?.className==='character-portrait-remove-confirm').props.onClick()
+  const remove=storageRequests.at(-1);assert.equal(remove.method,'remove');assert.equal(remove.args[0][0],`${other}/portrait`)
+  assert.equal(clears,0);remove.resolve({error:null});await settle();assert.equal(clears,1)
+  h.cleanup()
 })

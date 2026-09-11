@@ -5,6 +5,7 @@ import { findCharacterTemplate } from '../characterTemplates'
 import { useMyCharacters } from '../hooks/useMyCharacters'
 import { useMyDeletedCharacters } from '../hooks/useMyDeletedCharacters'
 import { useMyRounds } from '../hooks/useMyRounds'
+import { usePersonalOverviewRealtime } from '../hooks/usePersonalOverviewRealtime'
 import { useRestoreCharacter } from '../hooks/useRestoreCharacter'
 import {
   formatCharacterDeletedAt,
@@ -37,7 +38,12 @@ function CharactersPage() {
     rounds: myRounds,
     isLoading: areRoundsLoading,
     error: roundsError,
+    reload: reloadRounds,
   } = useMyRounds(user?.id)
+  usePersonalOverviewRealtime({
+    userId: user?.id, roundIds: myRounds.map(r => r.round_id),
+    reloadRounds, reloadCharacters, reloadTrash,
+  })
   const {
     isSubmitting: isRestoring,
     error: restoreError,

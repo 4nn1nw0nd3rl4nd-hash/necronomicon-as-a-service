@@ -89,7 +89,6 @@ function CharacterPageContent({ characterId, userId }: {
     beginWrite,
     updateCharacterDataField,
   } = useCharacter(characterId, userId)
-  useCharacterRealtime({ characterId, userId, roundId: realtimeRoundId, reload })
   const activeRef = useRef(false)
   useEffect(() => {
     activeRef.current = true
@@ -100,8 +99,10 @@ function CharacterPageContent({ characterId, userId }: {
     isLoading: isPortraitLoading,
     error: portraitError,
     reload: reloadPortrait,
+    reconcile: reconcilePortrait,
     clearPortrait,
-  } = useCharacterPortrait(character?.id)
+  } = useCharacterPortrait(character?.id, userId)
+  useCharacterRealtime({ characterId, userId, roundId: realtimeRoundId, reload, reconcilePortrait })
   const {
     isSubmitting: isUploadingPortrait,
     error: portraitUploadError,
@@ -370,7 +371,7 @@ function CharacterPageContent({ characterId, userId }: {
     resetPortraitRemoveState()
     const wasUploaded = await uploadCharacterPortrait(character.id, file)
 
-    if (wasUploaded) {
+    if (wasUploaded && activeRef.current) {
       reloadPortrait()
     }
   }
@@ -401,7 +402,7 @@ function CharacterPageContent({ characterId, userId }: {
 
     const wasRemoved = await removeCharacterPortrait(character.id)
 
-    if (wasRemoved) {
+    if (wasRemoved && activeRef.current) {
       setIsPortraitRemoveConfirmationOpen(false)
       clearPortrait()
     }
