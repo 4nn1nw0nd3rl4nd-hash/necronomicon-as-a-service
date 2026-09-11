@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RoundMember } from '../types/round'
 
@@ -30,7 +30,7 @@ export function useRoundMembers(
   userId: string | undefined,
 ) {
   const [state, setState] = useState<RoundMembersState>(initialState)
-  const [reloadKey, setReloadKey] = useState(0)
+  const reloadRef = useRef<(() => void) | null>(null)
   const hasValidRoundId = isValidRoundId(roundId)
 
   useEffect(() => {
@@ -38,89 +38,107 @@ export function useRoundMembers(
       return
     }
 
-    let isCurrentRequest = true
+    let active = true
+    let inFlight = false
+    let pending = false
+    let hasLoaded = false
+    let controller: AbortController | undefined
 
     const loadRoundMembers = async () => {
-      setState({
-        roundId,
-        userId,
-        members: [],
-        isLoading: true,
-        error: null,
-      })
+      if (!active) return
+      pending = true
+      if (inFlight) return
 
-      try {
-        const { data, error } = await supabase
-          .from('round_memberships')
-          .select(`
-            id,
-            round_id,
-            user_id,
-            role,
-            active_character_id,
-            created_at,
-            profile:profiles!inner (
-              id,
-              username,
-              display_name,
-              is_superadmin,
-              deletion_pending_at
-            )
-          `)
-          .eq('round_id', roundId)
-          .order('role', { ascending: true })
-          .order('created_at', { ascending: true })
-          .overrideTypes<RoundMember[], { merge: false }>()
-
-        if (!isCurrentRequest) {
-          return
-        }
-
-        if (error) {
+      inFlight = true
+      // Coalesce events during a request into one trailing fetch, never drop them.
+      while (active && pending) {
+        pending = false
+        controller = new AbortController()
+        if (!hasLoaded) {
           setState({
             roundId,
             userId,
             members: [],
-            isLoading: false,
-            error: 'Die Mitglieder konnten nicht geladen werden.',
+            isLoading: true,
+            error: null,
           })
-          return
         }
 
-        setState({
-          roundId,
-          userId,
-          members: data,
-          isLoading: false,
-          error: null,
-        })
-      } catch {
-        if (!isCurrentRequest) {
-          return
-        }
+        try {
+          const { data, error } = await supabase
+            .from('round_memberships')
+            .select(`
+              id,
+              round_id,
+              user_id,
+              role,
+              active_character_id,
+              created_at,
+              profile:profiles!inner (
+                id,
+                username,
+                display_name,
+                is_superadmin,
+                deletion_pending_at
+              )
+            `)
+            .eq('round_id', roundId)
+            .order('role', { ascending: true })
+            .order('created_at', { ascending: true })
+            .abortSignal(controller.signal)
+            .overrideTypes<RoundMember[], { merge: false }>()
 
-        setState({
-          roundId,
-          userId,
-          members: [],
-          isLoading: false,
-          error: 'Die Mitglieder konnten nicht geladen werden.',
-        })
+          if (!active) {
+            return
+          }
+
+          if (error) {
+            throw error
+          }
+
+          hasLoaded = true
+          setState({
+            roundId,
+            userId,
+            members: data,
+            isLoading: false,
+            error: null,
+          })
+        } catch {
+          if (!active) {
+            return
+          }
+
+          // A failed background refresh must keep the last successful list visible.
+          if (!hasLoaded) {
+            setState({
+              roundId,
+              userId,
+              members: [],
+              isLoading: false,
+              error: 'Die Mitglieder konnten nicht geladen werden.',
+            })
+          }
+        }
       }
+      inFlight = false
     }
 
+    reloadRef.current = () => {
+      void loadRoundMembers()
+    }
     void loadRoundMembers()
 
     return () => {
-      isCurrentRequest = false
+      active = false
+      reloadRef.current = null
+      controller?.abort()
     }
-  }, [hasValidRoundId, reloadKey, roundId, userId])
+  }, [hasValidRoundId, roundId, userId])
 
   const reload = useCallback(() => {
-    if (userId && isValidRoundId(roundId)) {
-      setReloadKey((currentKey) => currentKey + 1)
-    }
-  }, [roundId, userId])
+    reloadRef.current?.()
+  }, [])
 
   if (!userId) {
     return {

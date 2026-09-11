@@ -6,6 +6,7 @@ import EditRoundForm from '../components/EditRoundForm'
 import RoundCharactersSection from '../components/RoundCharactersSection'
 import { useRoundDetails } from '../hooks/useRoundDetails'
 import { useRoundMembers } from '../hooks/useRoundMembers'
+import { useRealtimeInvalidation } from '../hooks/useRealtimeInvalidation'
 import { useRemoveRoundPlayer } from '../hooks/useRemoveRoundPlayer'
 import { useTransferGameMaster } from '../hooks/useTransferGameMaster'
 import type {
@@ -43,6 +44,15 @@ function RoundDetailsPage() {
     error: membersError,
     reload: reloadMembers,
   } = useRoundMembers(roundId, user?.id)
+  useRealtimeInvalidation({
+    // useRoundDetails only returns a round for a valid ID and this user's membership.
+    scopeKey: user && round && round.id === roundId
+      ? `${user.id}:${round.id}`
+      : undefined,
+    table: 'round_memberships',
+    filter: `round_id=eq.${roundId}`,
+    onInvalidate: reloadMembers,
+  })
   const {
     isSubmitting: isRemovingPlayer,
     error: removePlayerError,
