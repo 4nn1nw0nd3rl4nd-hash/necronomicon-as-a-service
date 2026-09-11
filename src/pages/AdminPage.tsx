@@ -1,3 +1,5 @@
+import { useFocusReconciliation } from '../hooks/useFocusReconciliation'
+import { useProfile } from '../hooks/useProfile'
 import { accountRoleLabels, getAccountRoleLabel } from '../lib/accountRoleLabels'
 import { useState } from 'react'
 import {
@@ -38,13 +40,18 @@ function AdminPage() {
     useState<string | null>(null)
   const [pendingDeletionUserId, setPendingDeletionUserId] =
     useState<string | null>(null)
-  const { users, isLoading, error, reload } = useAdminUsers()
+  const { users, isLoading, error, reload } = useAdminUsers(currentProfile.id)
   const {
     rounds,
     isLoading: areRoundsLoading,
     error: roundsError,
     reload: reloadRounds,
-  } = useAdminRounds()
+  } = useAdminRounds(currentProfile.id)
+  const { reconnectVersion } = useProfile(currentProfile.id)
+  useFocusReconciliation(currentProfile.id, () => {
+    reload()
+    reloadRounds()
+  }, reconnectVersion)
   const {
     isSubmitting: isRoleSubmitting,
     activeUserId,

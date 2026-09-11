@@ -2,10 +2,11 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useProfile } from '../hooks/useProfile'
+import ProfileProvider from '../auth/ProfileProvider'
 import { supabase } from '../lib/supabase'
 import { isProductionEnvironment } from '../lib/environment'
 
-function AppLayout() {
+function AppLayoutContent() {
   const { user } = useAuth()
   const location = useLocation()
   const menuId = useId()
@@ -178,6 +179,10 @@ function AppLayout() {
       )}
     </div>
   )
+}
+
+function AppLayout() {
+  return <ProfileProvider><AppLayoutContent /></ProfileProvider>
 }
 
 export default AppLayout

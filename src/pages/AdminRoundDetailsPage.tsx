@@ -1,3 +1,5 @@
+import { useFocusReconciliation } from '../hooks/useFocusReconciliation'
+import { useProfile } from '../hooks/useProfile'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
@@ -23,13 +25,18 @@ function AdminRoundDetailsPage() {
   const { roundId } = useParams<{ roundId: string }>()
   const { currentProfile } = useOutletContext<AdminOutletContext>()
   const { round, isLoading, error, reload } =
-    useAdminRoundDetails(roundId)
+    useAdminRoundDetails(roundId, currentProfile.id)
   const {
     members,
     isLoading: areMembersLoading,
     error: membersError,
     reload: reloadMembers,
   } = useRoundMembers(roundId, currentProfile.id)
+  const { reconnectVersion } = useProfile(currentProfile.id)
+  useFocusReconciliation(roundId ? `${currentProfile.id}:${roundId}` : undefined, () => {
+    reload()
+    reloadMembers()
+  }, reconnectVersion)
   const {
     isSubmitting: isArchiveSubmitting,
     error: archiveError,

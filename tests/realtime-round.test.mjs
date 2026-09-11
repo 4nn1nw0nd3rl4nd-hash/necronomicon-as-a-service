@@ -15,6 +15,8 @@ function harness(supabase, globals = {}, overrides = {}) {
   const slots = [], pendingEffects = []
   const same = (a,b) => a && b && a.length === b.length && a.every((v,i) => Object.is(v,b[i]))
   const react = {
+    createContext(value) { return { value, Provider: 'ContextProvider' } },
+    useContext(context) { return context.value },
     useState(initial) {
       const i = cursor++
       if (!slots[i]) slots[i] = {
@@ -34,6 +36,7 @@ function harness(supabase, globals = {}, overrides = {}) {
       const ref=react.useRef(callback); ref.current=callback
       return react.useCallback((...a)=>ref.current(...a),[])
     },
+    useLayoutEffect(effect,deps) { react.useEffect(effect,deps) },
     useEffect(effect,deps) {
       const i=cursor++, previous=slots[i]
       if (!previous || !same(previous.deps,deps)) {
@@ -94,6 +97,7 @@ function backend() {
         is(key,value){query[key]=value;return chain},
         not(key,operator,value){query[key]={operator,value};return chain},
         maybeSingle(){query.single=true;return chain},
+        single(){query.single=true;return chain},
         abortSignal(signal){query.signal=signal;return chain},
         overrideTypes(){requests.push({...query,resolve,reject});return promise},
       }
@@ -1084,3 +1088,202 @@ test('CharacterPage own portrait upload/replace force reload; successful remove 
   assert.equal(clears,0);remove.resolve({error:null});await settle();assert.equal(clears,1)
   h.cleanup()
 })
+
+const profileData=(overrides={})=>({id:user,username:'username',display_name:'Name',role:'user',is_superadmin:false,deletion_pending_at:null,created_at:'2026-09-01',updated_at:'v1',...overrides})
+function profileSetup() {
+  const b=backend(),clock=browserClock(),auth={user:{id:user}}
+  const h=harness(b.api,clock,{'./useAuth':{useAuth:()=>auth}})
+  const Provider=h.load('src/auth/ProfileProvider.tsx').default
+  const context=h.load('src/auth/ProfileContext.ts').ProfileContext
+  const useProfile=h.load('src/hooks/useProfile.ts').useProfile
+  const render=()=>{
+    const tree=h.render(Provider,[{}]);context.value=tree.props.value
+    return useProfile(auth.user?.id)
+  }
+  render()
+  return {b,h,clock,auth,Provider,context,useProfile,render}
+}
+
+test('one own-profile provider serves multiple consumers; UPDATE silently adopts role/name without payload patching',async()=>{
+  const {b,h,clock,render,useProfile}=profileSetup()
+  b.requests[0].resolve({data:profileData(),error:null});await settle()
+  const first=render();assert.equal(b.channels.length,1)
+  assert.equal(useProfile(user),first);assert.equal(useProfile(user),first)
+  assert.equal(b.requests.length,1)
+  const channel=b.channels[0]
+  assert.equal(channel.config.table,'profiles');assert.equal(channel.config.event,'UPDATE')
+  assert.equal(channel.config.filter,`id=eq.${user}`)
+  channel.cb({new:{role:'admin',username:'untrusted'}});clock.advance()
+  assert.equal(render().profile.role,'user');assert.equal(render().profile,first.profile)
+  assert.equal(render().isLoading,false);assert.equal(b.requests[1].id,user)
+  b.requests[1].resolve({data:profileData({role:'admin',username:'server-name',is_superadmin:true}),error:null});await settle()
+  assert.equal(render().profile.role,'admin');assert.equal(useProfile(user).profile.username,'server-name')
+  assert.equal(useProfile(user).profile.is_superadmin,true)
+  channel.cb();clock.advance();b.requests[2].resolve({data:profileData(),error:null});await settle()
+  assert.equal(render().profile.role,'user');assert.equal(b.channels.length,1);h.cleanup()
+})
+
+test('own profile queues reads, preserves data on transient errors, reconciles own save and clears denial',async()=>{
+  const {b,h,render}=profileSetup()
+  b.requests[0].resolve({data:profileData(),error:null});await settle();render()
+  for(let i=0;i<10;i++)render().reload()
+  assert.equal(b.requests.length,2)
+  b.requests[1].reject(Error('offline'));await settle();assert.equal(render().profile.display_name,'Name')
+  assert.equal(b.requests.length,3)
+  const stale=b.requests[2]
+  const save=render().updateDisplayName(' Saved ')
+  const write=b.requests.at(-1);assert.equal(write.values.display_name,'Saved');assert.equal(Object.keys(write.values).length,1)
+  stale.resolve({data:profileData({display_name:'Stale'}),error:null});await settle()
+  assert.equal(render().profile.display_name,'Name');assert.equal(render().isSaving,true)
+  write.resolve({data:profileData({display_name:'Saved'}),error:null});await save
+  assert.equal(render().profile.display_name,'Saved')
+  b.requests.at(-1).resolve({data:profileData({display_name:'Saved',role:'admin'}),error:null});await settle()
+  assert.equal(render().profile.role,'admin')
+  render().reload();b.requests.at(-1).resolve({data:null,error:{code:'42501'}});await settle()
+  assert.equal(render().profile,null);assert.ok(render().error);h.cleanup()
+})
+
+test('profile user changes/logout/StrictMode clean channels, timers and obsolete reads or writes',async()=>{
+  const {b,h,clock,auth,render}=profileSetup()
+  h.replayEffects();assert.equal(b.requests[0].signal.aborted,true)
+  assert.equal(b.channels.length,2);assert.equal(b.removals.length,1)
+  b.requests[0].resolve({data:profileData({username:'stale'}),error:null})
+  b.requests[1].resolve({data:profileData(),error:null});await settle();render()
+  const save=render().updateDisplayName('old account write'),write=b.requests.at(-1)
+  const oldChannel=b.channels.at(-1);oldChannel.cb()
+  auth.user={id:'next-user'};assert.equal(render().profile,null);clock.advance()
+  assert.equal(b.channels.length,3);assert.equal(b.removals.length,2)
+  write.resolve({data:profileData({role:'admin'}),error:null});assert.equal(await save,null)
+  const current=b.requests.at(-1)
+  auth.user=undefined;render();assert.equal(current.signal.aborted,true)
+  current.resolve({data:profileData({id:'next-user'}),error:null});await settle()
+  oldChannel.cb();oldChannel.status('SUBSCRIBED');clock.advance()
+  assert.equal(render().profile,null);assert.equal(b.removals.length,3);assert.equal(clock.pending(),0);h.cleanup()
+})
+
+test('profile draft is scoped to profile ID, survives background changes and resets after explicit save',async()=>{
+  let state={profile:profileData(),isLoading:false,error:null,isSaving:false,saveError:null,reload(){},updateDisplayName:async()=>profileData({display_name:'Draft'})}
+  const h=harness({}, {}, {
+    '../auth/useAuth':{useAuth:()=>({user:{id:state.profile.id}})},
+    '../hooks/useProfile':{useProfile:()=>state},
+    '../components/EmailChangeForm':{default:'EmailChangeForm'},
+    '../components/PasswordChangeForm':{default:'PasswordChangeForm'},
+  })
+  const Page=h.load('src/pages/ProfilePage.tsx').default
+  const input=()=>nodes(h.render()).find(n=>n.props?.id==='display-name')
+  h.render(Page,[]);input().props.onChange({target:{value:'Draft'}})
+  state={...state,profile:profileData({display_name:'Remote',updated_at:'v2',role:'admin'})}
+  assert.equal(input().props.value,'Draft');assert.match(textOf(h.render()),/Kultistenführer/)
+  await nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  assert.equal(input().props.value,'Remote','after save draft ends and current shared state supplies the input')
+  input().props.onChange({target:{value:'Old user draft'}})
+  state={...state,profile:profileData({id:'next-user',display_name:'Next'})}
+  assert.equal(input().props.value,'Next');h.cleanup()
+})
+
+test('RequireAdmin reacts to authorized role changes without loading/remount state on background reads',()=>{
+  let profile=profileData({role:'admin'})
+  const h=harness({}, {}, {
+    '../auth/useAuth':{useAuth:()=>({user:{id:user},isLoading:false})},
+    '../hooks/useProfile':{useProfile:()=>({profile,isLoading:false,error:null,reload(){}})},
+    'react-router-dom':{Navigate:'Navigate',Outlet:'Outlet'},
+  })
+  const Guard=h.load('src/routes/RequireAdmin.tsx').default
+  assert.equal(h.render(Guard,[]).type,'Outlet')
+  profile=profileData();assert.equal(h.render().type,'Navigate');assert.equal(h.render().props.to,'/app')
+  profile=profileData({role:'admin',is_superadmin:true});assert.equal(h.render().props.context.currentProfile.is_superadmin,true)
+  h.cleanup()
+})
+
+for(const [name,key,data,args] of [
+  ['useAdminUsers','users',[profileData()],[user]],
+  ['useAdminRounds','rounds',[{...roundData().round,round_memberships:[]}],[user]],
+  ['useAdminRoundDetails','round',roundData().round,[round,user]],
+]) {
+  test(`${name}: focus events coalesce silent reads, reconnect refreshes, old scope/denial clear safely`,async()=>{
+    const b=backend(),clock=browserClock(),h=harness(b.api,clock)
+    const hook=h.load(`src/hooks/${name}.ts`)[name]
+    const focus=h.load('src/hooks/useFocusReconciliation.ts').useFocusReconciliation
+    const render=(scope,hookArgs,reconnect=0)=>{
+      const state=hook(...hookArgs)
+      focus(scope,state.reload,reconnect)
+      return state
+    }
+    h.render(render,[user,args]);b.requests[0].resolve({data,error:null});await settle()
+    const initial=h.render()[key]
+    clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'));clock.window.dispatchEvent(new Event('online'))
+    clock.advance();assert.equal(b.requests.length,2);assert.equal(h.render()[key],initial);assert.equal(h.render().isLoading,false)
+    clock.window.dispatchEvent(new Event('focus'));clock.advance()
+    b.requests[1].resolve({data,error:null});await settle();assert.equal(b.requests.length,3)
+    b.requests[2].reject(Error('offline'));await settle();assert.ok(h.render()[key]);assert.equal(h.render().error,null)
+    h.render(render,[user,args,1]);clock.advance();assert.equal(b.requests.length,4)
+    b.requests[3].resolve({data:null,error:{code:'42501'}});await settle()
+    assert.equal(key==='round'?h.render().round:h.render()[key].length,key==='round'?null:0)
+    h.render().reload();const stale=b.requests.at(-1)
+    h.render(render,['next',name==='useAdminRoundDetails'?[other,'next']:['next'],1]);assert.equal(stale.signal.aborted,true)
+    stale.resolve({data,error:null});await settle();assert.equal(key==='round'?h.render().round:h.render()[key].length,key==='round'?null:0)
+    h.cleanup();const count=b.requests.length;clock.advance();clock.window.dispatchEvent(new Event('focus'));clock.advance();assert.equal(b.requests.length,count)
+    assert.equal(b.channels.length,0)
+  })
+}
+
+test('admin browser return hook ignores hidden returns and cancels timers on scope change/StrictMode/unmount',()=>{
+  const clock=browserClock(),h=harness({},clock)
+  const hook=h.load('src/hooks/useFocusReconciliation.ts').useFocusReconciliation
+  let calls=0;const reload=()=>calls++
+  h.render(hook,[user,reload,0]);clock.document.visibilityState='hidden'
+  clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'));clock.advance();assert.equal(calls,0)
+  clock.document.visibilityState='visible';clock.window.dispatchEvent(new Event('focus'))
+  h.replayEffects();clock.advance();assert.equal(calls,0)
+  clock.window.dispatchEvent(new Event('focus'));h.render(hook,['next',reload,0]);clock.advance();assert.equal(calls,0)
+  clock.window.dispatchEvent(new Event('online'));clock.window.dispatchEvent(new Event('focus'));clock.advance();assert.equal(calls,1)
+  h.render(hook,['next',reload,1]);clock.advance();assert.equal(calls,2)
+  h.cleanup();clock.window.dispatchEvent(new Event('focus'));clock.advance();assert.equal(calls,2)
+})
+
+test('layout wraps all profile consumers once and updates username/admin navigation from shared state',()=>{
+  let profile=profileData()
+  const h=harness({}, {}, {
+    '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+    '../auth/ProfileProvider':{default:'ProfileProvider'},
+    '../hooks/useProfile':{useProfile:()=>({profile})},
+    '../lib/environment':{isProductionEnvironment:true},
+    'react-router-dom':{useLocation:()=>({key:'route'}),Link:'Link',NavLink:'NavLink',Outlet:'Outlet'},
+  })
+  const Layout=h.load('src/layouts/AppLayout.tsx').default
+  const root=h.render(Layout,[]);assert.equal(root.type,'ProfileProvider')
+  const Content=root.props.children.type
+  let tree=h.render(Content,[]);assert.match(textOf(tree),/username/)
+  assert.ok(!nodes(tree).some(n=>n.props?.to==='/app/admin'))
+  profile=profileData({role:'admin',username:'new-username'})
+  tree=h.render();assert.match(textOf(tree),/new-username/)
+  assert.ok(nodes(tree).some(n=>n.props?.to==='/app/admin'))
+  profile=profileData();assert.ok(!nodes(h.render()).some(n=>n.props?.to==='/app/admin'));h.cleanup()
+})
+
+for(const details of [false,true]) {
+  test(`admin ${details?'round detail':'overview'} page wires browser/reconnect refreshes without broad subscriptions`,async()=>{
+    const b=backend(),clock=browserClock();let reconnectVersion=0
+    const profile=profileData({role:'admin',is_superadmin:true})
+    const h=harness(b.api,clock,{
+      '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+      '../hooks/useProfile':{useProfile:()=>({reconnectVersion})},
+      'react-router-dom':{useOutletContext:()=>({currentProfile:profile}),useParams:()=>({roundId:round}),useSearchParams:()=>[new URLSearchParams(),()=>{}],Link:'Link'},
+      '../components/OrphanedRoundRecovery':{default:'Recovery'},
+    })
+    const Page=h.load(`src/pages/${details?'AdminRoundDetailsPage':'AdminPage'}.tsx`).default
+    const resolveReads=async(start)=>{
+      for(const r of b.requests.slice(start))r.resolve({data:details?(r.table==='rounds'?roundData('game_master',{orphaned_at:'today'}).round:[member()]):r.table==='profiles'?[profile]:[{...roundData().round,round_memberships:[]}],error:null})
+      await settle();return h.render()
+    }
+    h.render(Page,[]);let tree=await resolveReads(0)
+    if(details)assert.ok(nodes(tree).some(n=>n.type==='Recovery'))
+    const start=b.requests.length
+    clock.window.dispatchEvent(new Event('focus'));clock.document.dispatchEvent(new Event('visibilitychange'));clock.advance()
+    assert.equal(b.requests.length,start+2)
+    assert.ok(!textOf(h.render()).includes('wird geladen...'))
+    tree=await resolveReads(start);if(details)assert.ok(nodes(tree).some(n=>n.type==='Recovery'))
+    reconnectVersion++;h.render();clock.advance();assert.equal(b.requests.length,start+4)
+    assert.equal(b.channels.length,0);h.cleanup();assert.equal(clock.pending(),0)
+  })
+}

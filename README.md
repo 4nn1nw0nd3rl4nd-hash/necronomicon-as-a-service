@@ -326,3 +326,29 @@ Persönliche Übersichten mit zwei Sessions desselben Accounts prüfen; für Mit
 | J: Portrait-Delete | A löscht das Portrait. A zeigt sofort den Leerzustand, B nach Abgleich. Eine verspätete frühere Leseantwort darf das Bild nicht wiederherstellen. |
 | K: Tabs/UI | Archiv/Papierkorb auswählen, „Neue Runde anlegen“ öffnen und ausfüllen bzw. Restore-Bestätigung öffnen. Hintergrundänderungen dürfen Tab, Eingaben, Aufklappzustand und Fokus nicht zurücksetzen. Desktop und Mobil prüfen. |
 | L: Logout/Navigation | Während laufender Reads Charakter/Account wechseln oder ausloggen. Keine alten Daten/Bilder, alte Channels und Requests bereinigt; StrictMode und Reconnect mitprüfen. |
+
+## Eigenes Profil und Admin-Abgleich (Phase 2.16f)
+
+`ProfileProvider` im gemeinsamen `AppLayout` besitzt den Profilzustand und genau einen `profiles UPDATE`-Channel mit `id=eq.<userId>`. `useProfile` liest diesen Context; Header, `RequireAdmin` und Profilseite erzeugen keine eigenen Requests oder Channels. Ereignisse invalidieren ausschließlich: `useOwnProfile` lädt die bisher verwendeten Felder mit dem authentifizierten Client erneut. Navigation und Rollenanzeige reagieren auf diesen Serverstand, einschließlich `role` und `is_superadmin`. Bestehende Berechtigungsprüfungen und der Superadmin-Schutz bleiben unverändert.
+
+Der gemeinsame `useFocusReconciliation` bündelt Fokus, Visibility-Rückkehr und Online über 100 ms. Der eigene Profil-Channel meldet seinen erneuten Subscribe über den Context auch an geöffnete Adminseiten. Admin-Nutzerliste, Admin-Rundenübersicht sowie Admin-Rundendetail einschließlich Mitglieder/Recovery verwenden ausschließlich diese stillen Abgleiche und ihre vorhandenen Reloads nach eigenen Aktionen. Es gibt keine zusätzlichen Admin-Channels und kein Realtime für Suchvorschläge. Recovery-Eingaben und Suchen werden nicht erneut initialisiert.
+
+Die Daten-Hooks behalten erfolgreiche Inhalte während Hintergrundabrufen und temporären Fehlern. Sie erlauben höchstens einen laufenden Read plus einen vorgemerkten Folgeabruf. Erfolgreiche leere Antworten oder bestätigte Berechtigungsfehler entfernen nicht mehr verfügbare Daten. Scopewechsel und Unmount brechen Reads ab und ignorieren alte Antworten. Eigene Profil-Saves verwerfen überholte Leseantworten und laden anschließend den vollständigen Serverstand. Der lokale Anzeigenamenentwurf ist an die Profil-ID gebunden und bleibt bei fremden Updates erhalten. Es gibt keinen atomaren Versionsschutz oder automatischen Merge: Ein späteres eigenes Speichern kann einen parallel geänderten Anzeigenamen überschreiben.
+
+Für `profiles` gab es im Repository bislang keinen Publication-Nachweis. Die neue Migration `supabase/migrations/20260911135849_enable_own_profile_realtime.sql` prüft `pg_publication_tables` und ergänzt ausschließlich `public.profiles`, falls der Eintrag in `supabase_realtime` fehlt. Sie wurde **nicht angewendet**; der tatsächliche Remote-Publication-Stand wurde nicht abgefragt. Keine RLS-, Grant- oder REPLICA-IDENTITY-Änderungen. Vor dem echten Live-Test muss die vorbereitete Migration separat auf Staging angewendet werden.
+
+Geprüft: 63 isolierte Realtime-Tests mit `node tests/realtime-round.test.mjs`, `npm run build`, `npm run lint` und statischer Diff. Der Build meldet einen Chunk über 500 kB. Die Tests simulieren Hooks, Browserereignisse, Seitenzustände und Supabase-Antworten; sie belegen weder reale WebSocket-/RLS-Zustellung noch die Darstellung im Browser.
+
+### MANUAL: Abschlussprüfung für Phase 2.16f auf Staging
+
+| Fall | Ablauf und erwartetes Ergebnis |
+| --- | --- |
+| A: Rollenänderung | Nutzer in Session A auf Profilseite eingeloggt lassen. Der Bewahrer befördert ihn in Session B. A übernimmt Rollenanzeige und Adminnavigation ohne Reload; A im Vordergrund halten, damit Fokus fehlende Live-Events nicht verdeckt. |
+| B: Demotion | Einen gewöhnlichen Admin mit geöffneter Adminseite zurückstufen. Nach Profil-Refetch verschwinden Adminnavigation und Adminzugriff. Bestehenden Schutz des Bewahrers nicht umgehen. |
+| C: Profiländerung | Zwei Sessions desselben Accounts öffnen. In A den Anzeigenamen speichern; B übernimmt ihn ohne Reload. In den Entwicklertools nur einen eigenen, exakt gefilterten Profil-Channel je App-Instanz erwarten. |
+| D: Profilformular | In A einen abweichenden Anzeigenamenentwurf eingeben, in B speichern. As Entwurf bleibt erhalten. Eigenes Speichern, Fehlerfall und Accountwechsel prüfen; keine alten Accountdaten übernehmen. |
+| E: Admin-Nutzerseite | In B eine Rolle ändern, anschließend zur Admin-Nutzerseite in A zurückkehren. Liste aktualisiert sich ohne Leer-/Ladeflackern. Fokus und Visibility gemeinsam, Offline/Online sowie Reconnect prüfen. |
+| F: Admin-Runden | In B Runde umbenennen/archivieren oder Mitgliedschaft ändern. Bei Rückkehr aktualisieren sich Übersicht bzw. Rundendetail und Mitglieder. Recovery-Entwurf bleibt erhalten, Suche startet nicht erneut; nach eigener Recovery werden Details/Mitglieder weiter geladen. |
+| G: Navigation/Logout | Zwischen Profil/Admin/Details wechseln, während Anfragen laufen ausloggen und mit anderem Account anmelden. Keine alten Daten, Listener oder Channels behalten. StrictMode mitprüfen: maximal ein dauerhaft aktiver eigener Profil-Channel. |
+
+Diese manuellen Zwei-Session-Tests sind noch offen. Die vorhandenen Ansichten zusätzlich auf Desktop und Mobil prüfen und die Phasen 2.16b–e im abschließenden Phase-2.16-Smoke-Test mit abdecken. Vollständiges Admin-Realtime wurde bewusst nicht implementiert. Nach separater Anwendung der vorbereiteten Migration bleibt der Abschluss-Smoke-Test für Phase 2.16 auszuführen; kein db push, Commit oder Push wurde ausgeführt.

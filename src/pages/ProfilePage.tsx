@@ -18,7 +18,7 @@ function ProfilePage() {
     saveError,
   } = useProfile(user?.id)
   const [displayNameDraft, setDisplayNameDraft] = useState<{
-    profileUpdatedAt: string
+    profileId: string
     value: string
   } | null>(null)
   const [saveSucceeded, setSaveSucceeded] = useState(false)
@@ -28,7 +28,7 @@ function ProfilePage() {
   const [isSaveErrorDismissed, setIsSaveErrorDismissed] = useState(false)
 
   const displayName =
-    profile && displayNameDraft?.profileUpdatedAt === profile.updated_at
+    profile && displayNameDraft?.profileId === profile.id
       ? displayNameDraft.value
       : (profile?.display_name ?? '')
   const normalizedDisplayName = displayName.trim()
@@ -42,7 +42,7 @@ function ProfilePage() {
     }
 
     setDisplayNameDraft({
-      profileUpdatedAt: profile.updated_at,
+      profileId: profile.id,
       value,
     })
     setSaveSucceeded(false)
