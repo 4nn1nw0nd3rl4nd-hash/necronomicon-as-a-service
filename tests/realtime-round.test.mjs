@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import { resolve, dirname } from 'node:path'
@@ -1287,3 +1287,79 @@ for(const details of [false,true]) {
     assert.equal(b.channels.length,0);h.cleanup();assert.equal(clock.pending(),0)
   })
 }
+
+// Phase 2.16g: closing review. These assertions express the required cleanup
+// behavior; a failure is an open review finding, not an expected-pass snapshot.
+test('publication migrations add exactly the four intended tables with individual existence guards',()=>{
+  const directory='supabase/migrations'
+  const publications=readdirSync(directory).sort().map(name=>({name,sql:readFileSync(`${directory}/${name}`,'utf8')}))
+    .filter(({sql})=>/\bpublication\b/i.test(sql))
+  const tables=[]
+  for(const {name,sql} of publications){
+    assert.doesNotMatch(sql,/\b(?:drop|create)\s+publication\b|\bset\s+table\b|\b(?:grant|revoke|policy|trigger)\b|\breplica\s+identity\b/i,name)
+    const additions=[...sql.matchAll(/alter\s+publication\s+supabase_realtime\s+add\s+table\s+public\.(\w+)\s*;/gi)]
+    assert.ok(additions.length>0,name)
+    for(const [,table] of additions){
+      const guard=new RegExp(`if\\s+not\\s+exists\\s*\\(\\s*select\\s+1\\s+from\\s+(?:pg_catalog\\.)?pg_publication_tables\\s+where\\s+pubname\\s*=\\s*'supabase_realtime'\\s+and\\s+schemaname\\s*=\\s*'public'\\s+and\\s+tablename\\s*=\\s*'${table}'\\s*\\)\\s+then\\s+alter\\s+publication\\s+supabase_realtime\\s+add\\s+table\\s+public\\.${table}\\s*;\\s*end\\s+if`, 'i')
+      assert.match(sql,guard,`${name}: ${table}`)
+      tables.push(table)
+    }
+  }
+  assert.deepEqual(tables.sort(),['characters','profiles','round_memberships','rounds'])
+})
+
+for(const action of ['copy','delete']) {
+  test(`review: character ${action} completion after navigation must not redirect the new page`,async()=>{
+    const navigations=[]
+    const {b,h,resolveRead}=sheetPageSetup({
+      '../hooks/useCopyCharacter':undefined,
+      '../hooks/useSoftDeleteCharacter':undefined,
+      'react-router-dom':{useParams:()=>({characterId:other}),useLocation:()=>({}),useNavigate:()=> (...args)=>navigations.push(args),Link:'Link'},
+    })
+    await resolveRead()
+    nodes(h.render()).find(n=>n.props?.className===`character-${action}-trigger`).props.onClick()
+    nodes(h.render()).find(n=>n.props?.className===`character-${action}-confirm`).props.onClick()
+    const request=b.requests.at(-1)
+    assert.equal(request.rpc,action==='copy'?'copy_character':'soft_delete_character')
+    h.cleanup();const writes=h.stateWriteCount()
+    request.resolve({data:action==='copy'?round:null,error:null});await settle()
+    assert.deepEqual(navigations,[],'an obsolete CharacterPage must not navigate after unmount')
+    assert.equal(h.stateWriteCount(),writes,'completed action must not update an unmounted component')
+  })
+}
+
+for(const [name,action,args] of [
+  ['useUploadCharacterPortrait','uploadCharacterPortrait',[other,{type:'image/png',size:1024}]],
+  ['useRemoveCharacterPortrait','removeCharacterPortrait',[other]],
+]) {
+  test(`review: ${name} completion after unmount must not write state`,async()=>{
+    let finish
+    const request=new Promise(resolve=>{finish=resolve})
+    const h=harness({storage:{from:()=>({upload:()=>request,remove:()=>request})}})
+    const hook=h.load(`src/hooks/${name}.ts`)[name]
+    const pending=h.render(hook,[])[action](...args)
+    h.cleanup();const writes=h.stateWriteCount()
+    finish({error:null});await pending
+    assert.equal(h.stateWriteCount(),writes,'storage completion must not update an unmounted component')
+  })
+}
+
+test('review: profile save completing after leaving ProfilePage must not update its local draft state',async()=>{
+  // The shared ProfileProvider remains mounted across navigation within /app.
+  // Its successful save legitimately resolves even after ProfilePage unmounts.
+  let finish
+  const pending=new Promise(resolve=>{finish=resolve})
+  const h=harness({}, {}, {
+    '../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+    '../hooks/useProfile':{useProfile:()=>({profile:profileData(),isLoading:false,isSaving:false,updateDisplayName:()=>pending})},
+    '../components/EmailChangeForm':{default:'EmailChangeForm'},
+    '../components/PasswordChangeForm':{default:'PasswordChangeForm'},
+  })
+  const Page=h.load('src/pages/ProfilePage.tsx').default
+  h.render(Page,[])
+  nodes(h.render()).find(n=>n.props?.id==='display-name').props.onChange({target:{value:'Draft'}})
+  const submitted=nodes(h.render()).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  h.cleanup();const writes=h.stateWriteCount()
+  finish(profileData({display_name:'Draft'}));await submitted
+  assert.equal(h.stateWriteCount(),writes,'shared save may finish, but the departed page must not set state')
+})
