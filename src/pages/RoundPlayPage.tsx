@@ -9,7 +9,10 @@ import { useRoundDetails } from '../hooks/useRoundDetails'
 import { useRoundMembers } from '../hooks/useRoundMembers'
 import { useFocusReconciliation } from '../hooks/useFocusReconciliation'
 import { useRealtimeInvalidation } from '../hooks/useRealtimeInvalidation'
-import type { RoundDetails } from '../types/round'
+import { useRoundMessages } from '../hooks/useRoundMessages'
+import { useSendRoundMessage } from '../hooks/useSendRoundMessage'
+import { useRoundCharacters } from '../hooks/useRoundCharacters'
+import type { RoundDetails, RoundMember } from '../types/round'
 
 // Match the existing mobile breakpoint; CSS uses the same 48rem boundary.
 const desktopQuery = '(width > 48rem)'
@@ -21,7 +24,17 @@ function subscribeViewport(onChange: () => void) {
 const getDesktopSnapshot = () => window.matchMedia(desktopQuery).matches
 const getServerSnapshot = () => false
 
-export function RoundPlayShell({ round }: { round: RoundDetails }) {
+type RoundPlayShellProps = {
+  round: RoundDetails
+  userId: string
+  membership: RoundMember | undefined
+  activeCharacter: { id: string; name: string } | undefined
+  isSpeakerLoading: boolean
+  chat: ReturnType<typeof useRoundMessages>
+  onAccessRefresh: () => void
+}
+
+export function RoundPlayShell({ round, userId, membership, activeCharacter, isSpeakerLoading, chat, onAccessRefresh }: RoundPlayShellProps) {
   const [activeTab, setActiveTab] = useState<PlayTab>('table')
   const [desktopChatOpen, setDesktopChatOpen] = useState(true)
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
@@ -29,6 +42,16 @@ export function RoundPlayShell({ round }: { round: RoundDetails }) {
   const isDesktop = useSyncExternalStore(subscribeViewport, getDesktopSnapshot, getServerSnapshot)
   const isChatOpen = isDesktop ? desktopChatOpen : mobileChatOpen
   const setChatOpen = isDesktop ? setDesktopChatOpen : setMobileChatOpen
+  const [lastSeenSeq, setLastSeenSeq] = useState(0)
+  const unreadCount = chat.messages.filter(message => message.round_seq > Math.max(lastSeenSeq, chat.initialLatestSeq ?? 0)).length
+  const markRead = useCallback((seq: number) => setLastSeenSeq(previous => Math.max(previous, seq)), [])
+  const isGameMaster = membership?.role === 'game_master'
+  const composer = useSendRoundMessage(round.id, userId, isGameMaster ? null : activeCharacter?.id ?? null, chat.reload, onAccessRefresh)
+  const disabledReason = chat.accessDenied ? 'Du hast keinen Zugriff auf diesen Chat.'
+    : round.locked_at ? 'Diese Runde ist gesperrt. Nachrichten können nicht gesendet werden.'
+    : round.status === 'archived' ? 'Archivierte Runden können nicht mehr beschrieben werden.'
+    : !membership || chat.isLoading || (!isGameMaster && isSpeakerLoading) ? 'Deine Schreibberechtigung wird geprüft …'
+    : !isGameMaster && !activeCharacter ? 'Wähle zuerst einen aktiven Charakter.' : null
 
   return (
     <section className="play-page" aria-label="Spielmodus">
@@ -40,6 +63,7 @@ export function RoundPlayShell({ round }: { round: RoundDetails }) {
         isChatOpen={isChatOpen}
         onChatToggle={() => setChatOpen(!isChatOpen)}
         chatToggleRef={chatToggleRef}
+        unreadCount={unreadCount}
       />
       {round.locked_at && (
         <p className="locked-round-notice" role="status">Diese Runde wurde administrativ gesperrt.</p>
@@ -49,6 +73,12 @@ export function RoundPlayShell({ round }: { round: RoundDetails }) {
         <PlayChatPanel
           isDesktop={isDesktop}
           isOpen={isChatOpen}
+          chat={chat}
+          composer={composer}
+          disabledReason={disabledReason}
+          speakerName={isGameMaster ? 'Spielleitung' : activeCharacter?.name ?? null}
+          unreadCount={unreadCount}
+          onRead={markRead}
           onClose={() => {
             setChatOpen(false)
             // The desktop close button disappears; return focus to its toggle.
@@ -69,10 +99,22 @@ function RoundPlayPage() {
   const isMembershipMissing = !membersLoading && !membersError &&
     !members.some(member => member.user_id === user?.id)
   const round = isMembershipMissing ? null : loadedRound
+  const membership = members.find(member => member.user_id === user?.id)
+  const characterList = useRoundCharacters(
+    membership?.role === 'player' && membership.active_character_id ? round?.id : undefined,
+    user?.id,
+  )
+  const activeCharacter = characterList.characters.find(character =>
+    character.id === membership?.active_character_id && character.owner_user_id === user?.id && character.round_id === round?.id)
+  const chat = useRoundMessages(round?.id, user?.id)
+  const reloadCharacters = characterList.reload
+  const reloadMessages = chat.reload
   const reloadAccess = useCallback(() => {
     reload()
     reloadMembers()
-  }, [reload, reloadMembers])
+    reloadCharacters()
+    reloadMessages()
+  }, [reload, reloadMembers, reloadCharacters, reloadMessages])
   const schedule = useFocusReconciliation(user?.id && roundId ? `${user.id}:${roundId}` : undefined, reloadAccess)
   // Keep access reconciliation alive while content is unavailable, just as on
   // RoundDetailsPage (for example when an existing round is unlocked again).
@@ -80,12 +122,16 @@ function RoundPlayPage() {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roundId)
     ? `${user.id}:${roundId}`
     : undefined
-  // Only existing round/access invalidation, with no chat or character data.
+  // Round/access and current speaker changes reconcile via the existing hooks.
   useRealtimeInvalidation({ scopeKey, table: 'rounds', filter: `id=eq.${roundId}`, onInvalidate: schedule })
   useRealtimeInvalidation({ scopeKey, table: 'round_memberships', filter: `round_id=eq.${roundId}`, includeInserts: true, onInvalidate: schedule })
+  useRealtimeInvalidation({ scopeKey: membership?.role === 'player' && membership.active_character_id ? scopeKey : undefined,
+    table: 'characters', filter: `id=eq.${membership?.active_character_id}`, onInvalidate: schedule })
 
-  if (!isLoading && !error && round) {
-    return <RoundPlayShell key={`${user?.id}:${round.id}`} round={round} />
+  if (!isLoading && !error && round && user) {
+    return <RoundPlayShell key={`${user.id}:${round.id}`} round={round} userId={user.id}
+      membership={membership} activeCharacter={activeCharacter} isSpeakerLoading={characterList.isLoading}
+      chat={chat} onAccessRefresh={reloadAccess} />
   }
 
   return (

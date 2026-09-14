@@ -6,6 +6,8 @@ type RealtimeInvalidationOptions = {
   table: string
   filter: string | readonly string[]
   includeInserts?: boolean
+  insertOnly?: boolean
+  reconcileOnReplicationReady?: boolean
   onInvalidate: () => void
   onSubscribed?: () => void
 }
@@ -16,6 +18,8 @@ export function useRealtimeInvalidation({
   table,
   filter,
   includeInserts = false,
+  insertOnly = false,
+  reconcileOnReplicationReady = false,
   onInvalidate,
   onSubscribed,
 }: RealtimeInvalidationOptions) {
@@ -43,8 +47,17 @@ export function useRealtimeInvalidation({
     }
     const channel = supabase.channel(
       `invalidation:${instanceId}:${scopeKey}:${channelId}`,
+      reconcileOnReplicationReady ? { config: { broadcast: { replication_ready: true } } } : undefined,
     )
-    const events = includeInserts
+    if (reconcileOnReplicationReady) {
+      // SDK transport readiness, not a chat/system message. SUBSCRIBED may
+      // precede the actual Postgres listener; catch up again when it is ready.
+      channel.on('system', {}, (payload) => {
+        if (active && payload?.status === 'ok' &&
+          (payload.extension === 'postgres_changes' || payload.extension === 'system')) subscribed()
+      })
+    }
+    const events = insertOnly ? ['INSERT'] as const : includeInserts
       ? ['INSERT', 'UPDATE'] as const
       : ['UPDATE'] as const
     for (const event of events) {
@@ -65,5 +78,5 @@ export function useRealtimeInvalidation({
       active = false
       void supabase.removeChannel(channel)
     }
-  }, [filterKey, includeInserts, instanceId, scopeKey, table])
+  }, [filterKey, includeInserts, insertOnly, reconcileOnReplicationReady, instanceId, scopeKey, table])
 }

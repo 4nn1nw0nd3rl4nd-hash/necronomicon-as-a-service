@@ -17,10 +17,11 @@ type PlayModeHeaderProps = {
   isChatOpen: boolean
   onChatToggle: () => void
   chatToggleRef: RefObject<HTMLButtonElement | null>
+  unreadCount: number
 }
 
 function PlayModeHeader({
-  roundId, roundName, activeTab, onTabChange, isChatOpen, onChatToggle, chatToggleRef,
+  roundId, roundName, activeTab, onTabChange, isChatOpen, onChatToggle, chatToggleRef, unreadCount,
 }: PlayModeHeaderProps) {
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
@@ -31,7 +32,7 @@ function PlayModeHeader({
       </Link>
       <div className="play-title-row">
         <div>
-          <p className="play-eyebrow">Spielmodus · Vorschau</p>
+          <p className="play-eyebrow">Spielmodus</p>
           <h1>{roundName}</h1>
         </div>
         <button
@@ -43,6 +44,7 @@ function PlayModeHeader({
           onClick={onChatToggle}
         >
           {isChatOpen ? 'Chat ausblenden' : 'Chat öffnen'}
+          {!isChatOpen && unreadCount > 0 && <span className="play-chat-unread" aria-label={`${unreadCount} neue Nachrichten`}>{unreadCount}</span>}
         </button>
       </div>
       <div className="play-tabs" role="tablist" aria-label="Spielinhalt">

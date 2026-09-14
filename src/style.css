@@ -153,8 +153,8 @@ button {
 .play-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  flex: 1;
-  min-height: max(30rem, calc(100dvh - 20rem));
+  height: max(30rem, calc(100dvh - 20rem));
+  flex-shrink: 0;
   gap: var(--space-md);
 }
 
@@ -217,6 +217,10 @@ button {
   min-height: 0;
 }
 
+.play-chat-panel {
+  overflow: hidden;
+}
+
 .play-chat-header {
   padding: var(--space-md);
   border-bottom: 1px solid var(--color-border);
@@ -233,18 +237,82 @@ button {
 }
 
 .play-chat-history {
-  display: grid;
-  place-items: center;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-lg);
+  overflow-anchor: none;
+  padding: var(--space-md);
   color: var(--color-text-muted);
   line-height: 1.6;
 }
 
-.play-chat-hint {
+.play-chat-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.play-chat-message {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) 0 var(--space-sm) var(--space-sm);
+  border-left: 2px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+
+.play-chat-message[data-speaker='game_master'] {
+  border-left-color: var(--color-accent);
+}
+
+.play-chat-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
   font-size: 0.85rem;
+}
+
+.play-chat-message-meta strong {
+  color: var(--color-text);
+}
+
+.play-chat-message-meta time {
+  font-size: 0.7rem;
+}
+
+.play-chat-message > p {
+  margin: var(--space-xs) 0 0;
+  white-space: pre-wrap;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.play-chat-kind,
+.play-chat-compose-actions > span {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.play-chat-unread {
+  margin-left: var(--space-sm);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-background);
+  font-size: 0.8rem;
+}
+
+.play-chat-older,
+.play-chat-new {
+  font-size: 0.8rem;
+}
+
+.play-chat-new {
+  margin: var(--space-sm) var(--space-md);
+}
+
+.play-chat-error,
+.play-chat-composer > .play-chat-error {
+  color: #d9b8b0;
 }
 
 .play-chat-composer {
@@ -258,20 +326,38 @@ button {
   font-size: 0.85rem;
 }
 
-.play-chat-compose-row {
+.play-chat-compose-actions {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: var(--space-sm);
+  margin-top: var(--space-sm);
 }
 
-.play-chat-compose-row input {
+.play-chat-composer textarea {
+  display: block;
   width: 100%;
   min-width: 0;
   padding: var(--space-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-background);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 4rem;
+  max-height: 10rem;
+}
+
+.play-chat-composer textarea:disabled {
+  opacity: 0.6;
+}
+
+.play-chat-composer textarea:focus-visible,
+.play-chat-history:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .play-chat-composer > p {
@@ -316,7 +402,7 @@ button {
   .play-workspace,
   .play-workspace[data-chat-open='true'] {
     grid-template-columns: minmax(0, 1fr);
-    min-height: max(24rem, calc(100dvh - 21rem));
+    height: max(24rem, calc(100dvh - 21rem));
   }
 
   .play-main-content {
