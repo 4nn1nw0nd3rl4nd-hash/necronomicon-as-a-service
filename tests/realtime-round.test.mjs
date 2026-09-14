@@ -27,6 +27,10 @@ function harness(supabase, globals = {}, overrides = {}) {
     },
     useRef(initial) { const i=cursor++; return slots[i] ??= { current: initial } },
     useId() { return react.useRef(`test-${instanceId}-${cursor}`).current },
+    useSyncExternalStore(subscribe, getSnapshot) {
+      react.useEffect(() => subscribe(() => {}), [subscribe])
+      return getSnapshot()
+    },
     useCallback(callback,deps) {
       const i=cursor++
       if (!slots[i] || !same(slots[i].deps,deps)) slots[i] = { deps, callback }
@@ -408,6 +412,8 @@ test('page keeps character-section identity across membership changes, removes U
   b.requests[0].resolve({data:roundData(),error:null})
   b.requests[1].resolve({data:[member(user,'game_master')],error:null});await tick()
   const first=nodes(h.render()).find(n=>n.type==='RoundCharactersSection')
+  const playLink=nodes(h.render()).find(n=>n.type==='Link'&&textOf(n)==='Zum Spieltisch')
+  assert.equal(playLink.props.to,`/app/rounds/${round}/play`)
   assert.ok(first);const key=first.key
   b.requests[2].resolve({data:[character()],error:null});b.requests[3].resolve({data:[],error:null});await tick()
   const c=b.channels.find(c=>c.config.table==='round_memberships');c.cb();clock.advance()
@@ -1497,3 +1503,167 @@ for(const departed of [false,true]) {
     provider.h.cleanup()
   })
 }
+
+// Play mode: exercise the shell with the existing lifecycle harness.
+function playSetup() {
+  const b=backend(), clock=browserClock()
+  let roundId=round, account=user, desktop=true
+  clock.window.matchMedia=()=>({matches:desktop,addEventListener(){},removeEventListener(){}})
+  const h=harness(b.api,clock,{
+    'react-router-dom':{useParams:()=>({roundId}),Link:'Link'},
+    '../auth/useAuth':{useAuth:()=>({user:account?{id:account}:null})},
+    '../components/PlayModeHeader':{default:'PlayModeHeader'},
+    '../components/PlayMainContent':{default:'PlayMainContent'},
+    '../components/PlayChatPanel':{default:'PlayChatPanel'},
+  })
+  const Page=h.load('src/pages/RoundPlayPage.tsx').default
+  h.render(Page,[])
+  return {b,h,clock,Page,setRound:id=>{roundId=id},setAccount:id=>{account=id},setDesktop:value=>{desktop=value}}
+}
+
+test('play access uses normal membership reads, scoped refresh, locks and membership loss',async()=>{
+  const {b,h,clock}=playSetup()
+  assert.equal(b.requests.length,2)
+  assert.equal(b.requests[0].table,'round_memberships')
+  assert.equal(b.requests[0].user_id,user)
+  assert.equal(b.requests[0].round_id,round)
+  b.requests[0].resolve({data:roundData('player'),error:null})
+  b.requests[1].resolve({data:[member()],error:null});await tick()
+  assert.equal(h.render().props.round.id,round)
+  assert.deepEqual(b.channels.map(c=>c.config.table),['rounds','round_memberships'])
+  b.channels[0].cb();clock.advance()
+  b.requests[2].resolve({data:roundData('player',{locked_at:'2026-09-14'}),error:null})
+  b.requests[3].resolve({data:[member()],error:null});await tick()
+  assert.equal(h.render().props.round.locked_at,'2026-09-14','lock keeps the same read access as round details')
+  clock.window.dispatchEvent(new Event('focus'));clock.advance()
+  b.requests[4].reject(Error('network'))
+  b.requests[5].resolve({data:[],error:null});await tick()
+  assert.match(textOf(h.render()),/nicht verfügbar/)
+  assert.equal(b.removals.length,0,'retain the same access recovery subscriptions as round details')
+  b.channels[0].cb();clock.advance()
+  b.requests[6].resolve({data:roundData('player'),error:null})
+  b.requests[7].resolve({data:[member()],error:null});await tick()
+  assert.equal(h.render().props.round.id,round)
+  h.cleanup()
+  assert.equal(b.removals.length,2)
+})
+
+test('play navigation changes round/account keys, rejects stale results and hides content on logout',async()=>{
+  const {b,h,Page,setRound,setAccount}=playSetup()
+  b.requests[0].resolve({data:roundData(),error:null})
+  b.requests[1].resolve({data:[member()],error:null});await tick()
+  const initial=h.render()
+  setRound(other)
+  assert.match(textOf(h.render(Page,[])),/geladen/)
+  assert.equal(b.requests[2].round_id,other)
+  b.requests[2].resolve({data:roundData('player',{id:other,name:'Andere Runde'}),error:null})
+  b.requests[3].resolve({data:[member()],error:null});await tick()
+  const next=h.render()
+  assert.equal(next.props.round.id,other)
+  assert.notEqual(next.key,initial.key)
+  setAccount('admin-without-membership');h.render()
+  b.requests[4].resolve({data:null,error:null})
+  b.requests[5].resolve({data:[],error:null});await tick()
+  assert.match(textOf(h.render()),/nicht verfügbar/)
+  setAccount(undefined)
+  assert.match(textOf(h.render()),/nicht verfügbar/)
+  assert.equal(b.requests[4].signal.aborted,true)
+  h.cleanup()
+})
+
+test('play tabs and desktop/mobile chat states remain independent',async()=>{
+  const setup=playSetup(),{b,h,setDesktop}=setup
+  b.requests[0].resolve({data:roundData(),error:null})
+  b.requests[1].resolve({data:[member()],error:null});await tick()
+  const root=h.render()
+  const shell=harness({},setup.clock,{
+    'react-router-dom':{Link:'Link'},
+    '../auth/useAuth':{useAuth:()=>({})},
+    '../components/PlayModeHeader':{default:'PlayModeHeader'},
+    '../components/PlayMainContent':{default:'PlayMainContent'},
+    '../components/PlayChatPanel':{default:'PlayChatPanel'},
+  })
+  const header=tree=>nodes(tree).find(n=>n.type==='PlayModeHeader').props
+  const panel=tree=>nodes(tree).find(n=>n.type==='PlayChatPanel').props
+  const Shell=shell.load('src/pages/RoundPlayPage.tsx').RoundPlayShell
+  let tree=shell.render(Shell,[root.props])
+  assert.equal(header(tree).roundId,round)
+  assert.equal(panel(tree).isOpen,true)
+  for(const tab of ['character','notes','table']) {
+    header(tree).onTabChange(tab);tree=shell.render()
+    assert.equal(nodes(tree).find(n=>n.type==='PlayMainContent').props.activeTab,tab)
+    assert.equal(panel(tree).isOpen,true)
+  }
+  header(tree).onTabChange('notes');header(tree).onChatToggle();tree=shell.render()
+  assert.equal(panel(tree).isOpen,false)
+  assert.equal(header(tree).activeTab,'notes')
+  assert.equal(nodes(tree).find(n=>n.props?.className==='play-workspace').props['data-chat-open'],false)
+  header(tree).onChatToggle();tree=shell.render();assert.equal(panel(tree).isOpen,true)
+  setDesktop(false);tree=shell.render()
+  assert.equal(panel(tree).isDesktop,false)
+  assert.equal(panel(tree).isOpen,false)
+  header(tree).onChatToggle();tree=shell.render();assert.equal(panel(tree).isOpen,true)
+  panel(tree).onClose();tree=shell.render()
+  assert.equal(panel(tree).isOpen,false)
+  assert.equal(header(tree).activeTab,'notes')
+  shell.cleanup();h.cleanup()
+})
+
+test('play header links to current round and supports arrow/Home/End tab navigation',()=>{
+  const h=harness({}, {}, {'react-router-dom':{Link:'Link'}})
+  const Header=h.load('src/components/PlayModeHeader.tsx').default
+  let selected='table',focused
+  const props={roundId:other,roundName:'Andere Runde',activeTab:'table',onTabChange:tab=>{selected=tab},isChatOpen:true,onChatToggle(){}}
+  const tree=h.render(Header,[props])
+  assert.equal(nodes(tree).find(n=>n.type==='Link').props.to,`/app/rounds/${other}`)
+  const tabs=nodes(tree).filter(n=>n.props?.role==='tab')
+  tabs.forEach((tab,i)=>tab.props.ref({focus(){focused=i}}))
+  assert.deepEqual(tabs.map(t=>t.props.tabIndex),[0,-1,-1])
+  for(const [key,tab,index] of [['ArrowLeft','notes',2],['ArrowRight','character',1],['End','notes',2],['Home','table',0]]) {
+    tabs[0].props.onKeyDown({key,preventDefault(){}})
+    assert.equal(selected,tab);assert.equal(focused,index)
+  }
+  h.cleanup()
+})
+
+test('mobile chat is modal, closes with Escape/backdrop and restores body scroll; composer is disabled',()=>{
+  const document={body:{style:{overflow:'auto'}}}
+  const h=harness({}, {document})
+  const Panel=h.load('src/components/PlayChatPanel.tsx').default
+  let closes=0,opens=0,requests=0
+  const props={isDesktop:false,isOpen:false,onClose:()=>requests++}
+  let tree=h.render(Panel,[props])
+  tree.props.ref.current={showModal(){opens++},close(){closes++}}
+  tree=h.render(Panel,[{...props,isOpen:true}])
+  assert.equal(opens,1);assert.equal(document.body.style.overflow,'hidden')
+  assert.equal(nodes(tree).find(n=>n.type==='input').props.disabled,true)
+  assert.equal(nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Senden').props.disabled,true)
+  tree.props.onCancel({preventDefault(){}});assert.equal(requests,1)
+  const backdrop={};tree.props.onClick({target:backdrop,currentTarget:backdrop});assert.equal(requests,2)
+  h.render(Panel,[props]);assert.equal(closes,1);assert.equal(document.body.style.overflow,'auto')
+  h.cleanup()
+})
+
+test('play route remains inside RequireAuth and AppLayout, without an admin access path',()=>{
+  const source=readFileSync('src/App.tsx','utf8')
+  const overrides={'react-router-dom':{Route:'Route',Routes:'Routes'}}
+  for(const [,name,path] of source.matchAll(/import (\w+) from '([^']+)'/g)) overrides[path]={default:name}
+  const h=harness({}, {},overrides)
+  const App=h.load('src/App.tsx').default
+  const tree=h.render(App,[])
+  const auth=nodes(tree).find(n=>n.type==='Route'&&n.props.element?.type==='RequireAuth')
+  const layout=nodes(auth).find(n=>n.type==='Route'&&n.props.path==='/app')
+  const play=nodes(layout).find(n=>n.type==='Route'&&n.props.path==='rounds/:roundId/play')
+  assert.equal(play.props.element.type,'RoundPlayPage')
+  assert.ok(layout.props.children.includes(play),'play route is a direct child of the normal app layout')
+  const guard=harness({}, {},{
+    'react-router-dom':{Navigate:'Navigate',Outlet:'Outlet',useLocation:()=>({pathname:`/app/rounds/${round}/play`})},
+    '../auth/useAuth':{useAuth:()=>({session:null,isLoading:false})},
+    '../components/AuthLoadingScreen':{default:'AuthLoadingScreen'},
+  })
+  const RequireAuth=guard.load('src/routes/RequireAuth.tsx').default
+  const redirected=guard.render(RequireAuth,[])
+  assert.equal(redirected.props.to,'/login')
+  assert.equal(redirected.props.state.from.pathname,`/app/rounds/${round}/play`)
+  guard.cleanup();h.cleanup()
+})

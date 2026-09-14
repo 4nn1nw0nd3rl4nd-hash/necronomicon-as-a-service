@@ -16,6 +16,7 @@ import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import RoundDetailsPage from './pages/RoundDetailsPage'
+import RoundPlayPage from './pages/RoundPlayPage'
 import RoundsPage from './pages/RoundsPage'
 import GuestOnly from './routes/GuestOnly'
 import RequireAdmin from './routes/RequireAdmin'
@@ -48,6 +49,7 @@ function App() {
             element={<CreatePreparedCharacterPage />}
           />
           <Route path="rounds/:roundId" element={<RoundDetailsPage />} />
+          <Route path="rounds/:roundId/play" element={<RoundPlayPage />} />
           <Route element={<RequireAdmin />}>
             <Route path="admin" element={<AdminPage />} />
             <Route

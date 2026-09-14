@@ -358,6 +358,11 @@ function RoundDetailsPage() {
               <span className="round-badge round-locked">Gesperrt</span>
             )}
           </div>
+          <div>
+            <Link className="play-entry-link" to={`/app/rounds/${round.id}/play`}>
+              Zum Spieltisch
+            </Link>
+          </div>
         </header>
         {round.orphaned_at && (
           <p className="round-members-state" role="status">
