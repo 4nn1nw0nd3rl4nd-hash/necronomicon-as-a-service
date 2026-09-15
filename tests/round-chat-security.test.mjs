@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 const schema=readFileSync('supabase/migrations/20260914100000_create_round_messages.sql','utf8')
 const security=readFileSync('supabase/migrations/20260914101000_secure_round_messages.sql','utf8')
+const gmSecurity=readFileSync('supabase/migrations/20260915100000_allow_game_master_active_character_chat.sql','utf8')
 const publication=readFileSync('supabase/migrations/20260914102000_enable_round_messages_realtime.sql','utf8')
 const code=security.replace(/--[^\n]*/g,'')
 const reader=code.slice(0,code.indexOf('create function public.send_round_message'))
-const sender=code.slice(code.indexOf('create function public.send_round_message'))
+const sender=gmSecurity.replace(/--[^\n]*/g,'')
 
 test('chat history FKs survive account/character deletion, protect rounds, and contain only Phase 3.1 fields',()=>{
   assert.match(schema,/round_id uuid not null references public.rounds\(id\) on delete restrict/)
@@ -63,12 +64,94 @@ test('idempotency and round sequences use separate transaction-scoped locks and 
 test('definers have empty search paths, qualified tables and explicit authenticated-only execute grants',()=>{
   assert.equal((code.match(/security definer\s+set search_path = ''/g)||[]).length,2)
   assert.doesNotMatch(code,/\b(?:from|join|into)\s+(?:rounds|characters|round_messages|round_memberships)\b/)
-  assert.match(sender,/revoke all on function public.send_round_message\(uuid, text, uuid, uuid\) from public, anon/)
-  assert.match(sender,/grant execute on function public.send_round_message\(uuid, text, uuid, uuid\) to authenticated/)
+  assert.match(code,/revoke all on function public.send_round_message\(uuid, text, uuid, uuid\) from public, anon/)
+  assert.match(code,/grant execute on function public.send_round_message\(uuid, text, uuid, uuid\) to authenticated/)
+  assert.match(sender,/security definer\s+set search_path = ''/)
+  assert.doesNotMatch(sender,/\b(?:grant|revoke)\b/i)
+})
+test('Phase 3.2b changes only the GM dispatch; player validation, retries, locks and INSERT remain identical',()=>{
+  const original=code.slice(code.indexOf('create function public.send_round_message'),code.indexOf('revoke all on function public.send_round_message'))
+  const expected=original
+    .replace('create function public.send_round_message','create or replace function public.send_round_message')
+    .replace(/if current_membership.role = 'game_master' then\s+if p_expected_active_character_id is not null then\s+raise exception using errcode = '22023', message = 'CHAT_IDENTITY_CHANGED';\s+end if;/,
+      "if current_membership.role = 'game_master' and p_expected_active_character_id is null then")
+    .replace("elsif current_membership.role = 'player' then", "elsif current_membership.role = 'player' or current_membership.role = 'game_master' then")
+  const normalize=sql=>sql.replace(/\s+/g,' ').trim()
+  assert.equal(normalize(sender),normalize(expected))
+  assert.equal((sender.match(/create or replace function/g)||[]).length,1)
+  assert.doesNotMatch(sender,/\b(?:alter|drop|policy|publication|p_gm_character_id)\b/i)
+})
+test('GM narration is the only NULL-identity exception; both roles otherwise require the locked own active character',()=>{
+  assert.match(sender,/if current_membership.role = 'game_master'\s+and p_expected_active_character_id is null then\s+speaker_kind := 'game_master';\s+speaker_name := 'Spielleitung';\s+elsif current_membership.role = 'player' or current_membership.role = 'game_master' then\s+if current_membership.active_character_id is null then/)
+  assert.match(sender,/if p_expected_active_character_id is null\s+or current_membership.active_character_id is distinct from p_expected_active_character_id then\s+raise exception using errcode = '22023', message = 'CHAT_IDENTITY_CHANGED';\s+end if;\s+speaker_kind := 'character';\s+speaker_name := current_character.name/)
+})
+test('profile lock remains before round sequence, character, round and membership locks and active-character validation',()=>{
+  const steps=[
+    'from public.profiles where id = caller_user_id for key share',
+    "'round-message-sequence:'",
+    'select * into current_character from public.characters',
+    'from public.rounds where id = p_round_id for share',
+    'where round_id = p_round_id and user_id = caller_user_id for share',
+    'current_membership.active_character_id is distinct from p_expected_active_character_id',
+    'insert into public.round_messages',
+  ].map(text=>sender.indexOf(text))
+  assert.ok(steps.every((position,index)=>position>=0 && (index===0 || position>steps[index-1])))
 })
 test('publication migration only adds round_messages with an existence guard and leaves other tables untouched',()=>{
   assert.match(publication,/if not exists[\s\S]*tablename = 'round_messages'/)
   assert.equal((publication.match(/alter publication/g)||[]).length,1)
   assert.match(publication,/alter publication supabase_realtime add table public.round_messages/)
   assert.doesNotMatch(publication,/\b(?:drop|create|set|delete|truncate)\b/i)
+})
+
+const privateFoundation=readFileSync('supabase/migrations/20260915110000_add_private_assignment_message_foundation.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+
+test('Phase 3.3a1 adds only a nullable cascading recipient and replaces the original column CHECKs',()=>{
+  assert.match(privateFoundation,/add column recipient_user_id uuid constraint round_messages_recipient_user_id_fkey references public.profiles\(id\) on delete cascade/)
+  assert.doesNotMatch(privateFoundation,/recipient_user_id uuid (?:not null|default)/)
+  assert.deepEqual([...privateFoundation.matchAll(/drop constraint (\w+)/g)].map(match=>match[1]),
+    ['round_messages_kind_check','round_messages_speaker_kind_check'])
+  // The Phase 3.1 inline CHECKs produce these table_column_check names.
+  assert.match(schema,/kind text not null default 'character_message' check \(kind = 'character_message'\)/)
+  assert.match(schema,/speaker_kind text not null check \(speaker_kind in \('character', 'game_master'\)\)/)
+  assert.match(privateFoundation,/check \(kind in \('character_message', 'system_message'\)\)/)
+  assert.match(privateFoundation,/check \(speaker_kind in \('character', 'game_master', 'system'\)\)/)
+})
+test('Phase 3.3a1 combinations prohibit public system rows, private character rows and attributed system authors',()=>{
+  assert.match(privateFoundation,/add constraint round_messages_message_identity check \( \( kind = 'character_message' and recipient_user_id is null and speaker_kind in \('character', 'game_master'\) \) or \( kind = 'system_message' and speaker_kind = 'system' and recipient_user_id is not null and author_user_id is null and speaker_name_snapshot = 'System' \) \)/)
+  assert.doesNotMatch(privateFoundation,/character_id is not null/)
+  assert.match(schema,/constraint round_messages_gm_identity check \(\s+speaker_kind <> 'game_master'\s+or \(character_id is null and speaker_name_snapshot = 'Spielleitung'\)/)
+  assert.doesNotMatch(privateFoundation,/drop constraint round_messages_(?:gm_identity|request_key|round_seq_key)/)
+  assert.match(schema,/client_request_id uuid not null/)
+  assert.match(schema,/unique \(author_user_id, client_request_id\)/)
+  assert.match(schema,/unique \(round_id, round_seq\)/)
+})
+test('Phase 3.3a1 narrows the sole existing SELECT policy with AND; no functions, grants, writes or publication changes',()=>{
+  assert.match(privateFoundation,/alter policy "Current members can read round chat" on public.round_messages using \( public.can_read_round_messages\(round_id\) and \(recipient_user_id is null or recipient_user_id = \(select auth.uid\(\)\)\) \);$/)
+  assert.equal((privateFoundation.match(/alter policy/g)||[]).length,1)
+  assert.equal((privateFoundation.match(/alter table public.round_messages/g)||[]).length,1)
+  assert.equal(privateFoundation.split(';').filter(statement=>statement.trim()).length,2)
+  assert.doesNotMatch(privateFoundation,/\b(?:function|trigger|grant|revoke|publication|insert|update|truncate|create policy|drop policy|disable|is_admin|is_superadmin)\b/i)
+})
+test('Phase 3.3a1 SQL fixtures cover recipient RLS, invalid identities and catalog cascade without account deletion',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const fixtures=sql.slice(sql.indexOf('-- Phase 3.3a1:'))
+  for(const label of [
+    'public system forbidden','private character forbidden','system author forbidden',
+    'system character speaker forbidden','system GM speaker forbidden','system wrong snapshot forbidden',
+    'character system speaker forbidden','GM character ID forbidden','GM wrong snapshot forbidden',
+    'private assignment visibility by known message ID','GM has private access only as recipient',
+    'former member loses public and private access','other member still sees exactly public history',
+    'rejoined recipient sees public and own private history again',
+    'character FK SET NULL preserves public and private history',
+    'locked player cannot read even own private message',
+    'recipient reads public and own private history in archive',
+  ]) assert.ok(fixtures.includes(label),label)
+  assert.match(fixtures,/\('admin',false,false\), \('super',false,false\)/)
+  assert.match(fixtures,/fk\.confrelid='public.profiles'::regclass/)
+  assert.match(fixtures,/fk\.confdeltype='c' and not source_column\.attnotnull and fk\.convalidated/)
+  assert.match(sql,/\nbegin;/)
+  assert.match(sql,/rollback;\s*$/)
+  assert.doesNotMatch(sql,/delete from (?:auth\.users|public\.profiles)/i)
 })

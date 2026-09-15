@@ -5,6 +5,7 @@ import type { RoundCharacterSummary } from '../types/character'
 type RoundCharactersState = {
   roundId: string | undefined
   accessScope: string | undefined
+  characterId: string | undefined
   characters: RoundCharacterSummary[]
   isLoading: boolean
   error: string | null
@@ -13,6 +14,7 @@ type RoundCharactersState = {
 const initialState: RoundCharactersState = {
   roundId: undefined,
   accessScope: undefined,
+  characterId: undefined,
   characters: [],
   isLoading: false,
   error: null,
@@ -28,6 +30,7 @@ function isValidRoundId(roundId: string | undefined): roundId is string {
 export function useRoundCharacters(
   roundId: string | undefined,
   accessScope?: string,
+  characterId?: string,
 ) {
   const [state, setState] = useState<RoundCharactersState>(initialState)
   const reloadRef = useRef<(() => void) | null>(null)
@@ -54,13 +57,14 @@ export function useRoundCharacters(
           setState({
             roundId,
             accessScope,
+            characterId,
             characters: [],
             isLoading: true,
             error: null,
           })
         }
         try {
-          const { data, error } = await supabase
+          const query = supabase
             .from('characters')
             .select(`
               id,
@@ -74,6 +78,8 @@ export function useRoundCharacters(
             .eq('round_id', roundId)
             .is('deleted_at', null)
             .order('name', { ascending: true })
+          if (characterId) query.eq('id', characterId)
+          const { data, error } = await query
             .abortSignal(controller.signal)
             .overrideTypes<RoundCharacterSummary[], { merge: false }>()
           if (!active) return
@@ -82,6 +88,7 @@ export function useRoundCharacters(
           setState({
             roundId,
             accessScope,
+            characterId,
             characters: data ?? [],
             isLoading: false,
             error: error?.code === '42501' ? 'Die Charaktere sind nicht verfügbar.' : null,
@@ -93,6 +100,7 @@ export function useRoundCharacters(
             setState({
               roundId,
               accessScope,
+              characterId,
               characters: [],
               isLoading: false,
               error: 'Die Charaktere konnten nicht geladen werden.',
@@ -112,7 +120,7 @@ export function useRoundCharacters(
       reloadRef.current = null
       controller?.abort()
     }
-  }, [hasValidRoundId, roundId, accessScope])
+  }, [hasValidRoundId, roundId, accessScope, characterId])
 
   const reload = useCallback(() => {
     reloadRef.current?.()
@@ -127,7 +135,7 @@ export function useRoundCharacters(
     }
   }
 
-  if (state.roundId !== roundId || state.accessScope !== accessScope) {
+  if (state.roundId !== roundId || state.accessScope !== accessScope || state.characterId !== characterId) {
     return {
       characters: [] as RoundCharacterSummary[],
       isLoading: true,

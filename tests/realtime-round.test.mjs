@@ -2031,3 +2031,197 @@ for(const moved of [false,true]) {
     assert.match(textOf(tree),/Offline/);assert.equal(focuses,moved?0:1);h.cleanup()
   })
 }
+
+// Phase 3.2c: real sender hook bound to the shell's mode state.
+function gmSenderSetup(changes={}) {
+  const b=backend(),clock=browserClock()
+  clock.window.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}})
+  const h=harness(b.api,{...clock,crypto:{randomUUID:()=>`gm-request-${b.requests.length}`}}, {
+    'react-router-dom':{Link:'Link'},'../auth/useAuth':{useAuth:()=>({})},
+    '../components/PlayModeHeader':{default:'PlayModeHeader'},'../components/PlayMainContent':{default:'PlayMainContent'},
+    '../components/PlayChatPanel':{default:'PlayChatPanel'},
+  })
+  const Shell=h.load('src/pages/RoundPlayPage.tsx').RoundPlayShell
+  let props={round:roundData('game_master').round,userId:user,membership:{...member(user,'game_master'),active_character_id:other},
+    activeCharacter:{id:other,name:'Elin'},isSpeakerLoading:false,chat:emptyChat(),onAccessRefresh(){},...changes}
+  const render=next=>{props={...props,...next};return nodes(h.render(Shell,[props])).find(n=>n.type==='PlayChatPanel').props}
+  render()
+  return {b,h,render}
+}
+async function confirmSend(f,pending) {
+  const request=f.b.requests.at(-1)
+  request.resolve({data:chatMessage(1,{client_request_id:request.args.p_client_request_id}),error:null})
+  assert.equal(await pending,true)
+}
+test('GM sender defaults to active character, switches both ways and sends exactly the existing four RPC parameters',async()=>{
+  const f=gmSenderSetup()
+  assert.equal(f.render().speakerSelection.mode,'character');assert.equal(f.render().speakerName,'Elin')
+  for(const [mode,id] of [['character',other],['game_master',null],['character',other]]) {
+    f.render().speakerSelection.onChange(mode)
+    f.render().composer.setText('Gleicher Text')
+    const pending=f.render().composer.send(),request=f.b.requests.at(-1)
+    assert.deepEqual(Object.keys(request.args).sort(),['p_body','p_client_request_id','p_expected_active_character_id','p_round_id'])
+    assert.equal(request.args.p_expected_active_character_id,id)
+    await confirmSend(f,pending)
+  }
+  assert.equal(new Set(f.b.requests.map(r=>r.args.p_client_request_id)).size,3)
+  f.h.cleanup()
+})
+test('GM sender waits for initial active-character resolution, preserves mode through A to B loading and adopts rename',()=>{
+  const f=gmSenderSetup({activeCharacter:undefined,isSpeakerLoading:true})
+  assert.ok(f.render().disabledReason)
+  let panel=f.render({activeCharacter:{id:other,name:'Elin'},isSpeakerLoading:false})
+  assert.equal(panel.speakerSelection.mode,'character')
+  panel=f.render({activeCharacter:undefined,isSpeakerLoading:true})
+  assert.ok(panel.disabledReason)
+  panel=f.render({activeCharacter:{id:'B',name:'Birgit'},isSpeakerLoading:false})
+  assert.equal(panel.speakerSelection.mode,'character');assert.equal(panel.speakerName,'Birgit')
+  panel=f.render({activeCharacter:{id:'B',name:'Birgit Neu'}})
+  assert.equal(panel.speakerName,'Birgit Neu')
+  panel=f.render({activeCharacter:undefined,membership:{...member(user,'game_master'),active_character_id:null}})
+  assert.equal(panel.speakerSelection.mode,'game_master');assert.equal(panel.disabledReason,null)
+  panel=f.render({activeCharacter:{id:'B',name:'Birgit Neu'},membership:member(user,'game_master')})
+  assert.equal(panel.speakerSelection.mode,'game_master','automatic fallback stays selected when a character reappears')
+  f.h.cleanup()
+})
+test('GM without active character narrates; players have no selection and use only their active character',async()=>{
+  const f=gmSenderSetup({activeCharacter:undefined,membership:{...member(user,'game_master'),active_character_id:null}})
+  assert.equal(f.render().speakerSelection.characterName,undefined)
+  assert.equal(f.render().speakerSelection.mode,'game_master')
+  f.render().composer.setText('Erzählung');await confirmSend(f,f.render().composer.send())
+  assert.equal(f.b.requests[0].args.p_expected_active_character_id,null)
+  let panel=f.render({membership:member(),activeCharacter:{id:other,name:'Sven'}})
+  assert.equal(panel.speakerSelection,undefined);assert.equal(panel.speakerName,'Sven')
+  panel.composer.setText('Spielertext');await confirmSend(f,f.render().composer.send())
+  assert.equal(f.b.requests[1].args.p_expected_active_character_id,other)
+  panel=f.render({activeCharacter:undefined});assert.match(panel.disabledReason,/aktiven Charakter/)
+  panel=f.render({membership:member(user,'game_master'),activeCharacter:{id:other,name:'Sven'}})
+  assert.equal(panel.speakerSelection.mode,'character','regaining GM role initializes its mode afresh')
+  f.h.cleanup()
+})
+for(const [firstId,nextId] of [[other,null],[null,other],[other,'B']]) {
+  test(`sender identity ${firstId} to ${nextId}: new intent gets a fresh ID; explicit retry retains old body and identity`,async()=>{
+    const f=sendSetup(),{b,h,hook,args}=f
+    h.render(hook,[...args.slice(0,2),firstId,...args.slice(3)])
+    const first=h.render().send(),original={...b.requests[0].args}
+    // Switching during flight must not permit any parallel new send or retry.
+    h.render(hook,[...args.slice(0,2),nextId,...args.slice(3)])
+    assert.equal(await h.render().send(),false);assert.equal(await h.render().retry(),false)
+    assert.deepEqual({...b.requests[0].args},original)
+    b.requests[0].reject(Error('timeout'));await first
+    assert.equal(h.render().hasDifferentPendingAttempt,true)
+    const retry=h.render().retry()
+    assert.deepEqual({...b.requests[1].args},original)
+    b.requests[1].reject(Error('timeout again'));await retry
+    const fresh=h.render().send()
+    assert.equal(b.requests[2].args.p_expected_active_character_id,nextId)
+    assert.equal(b.requests[2].args.p_body,original.p_body)
+    assert.notEqual(b.requests[2].args.p_client_request_id,original.p_client_request_id)
+    await confirmSend(f,fresh);h.cleanup()
+  })
+}
+test('sender mode round trip is a new intent, but unchanged rerenders and renames preserve an ordinary retry',async()=>{
+  const f=gmSenderSetup()
+  f.render().composer.setText('Unklar');const first=f.render().composer.send()
+  f.b.requests[0].reject(Error('timeout'));await first
+  f.render({activeCharacter:{id:other,name:'Elin Neu'}})
+  const retry=f.render().composer.send()
+  assert.deepEqual(f.b.requests[1].args,f.b.requests[0].args)
+  f.b.requests[1].reject(Error('timeout'));await retry
+  f.render().speakerSelection.onChange('game_master');f.render()
+  f.render().speakerSelection.onChange('character');f.render()
+  const fresh=f.render().composer.send()
+  assert.notEqual(f.b.requests[2].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  await confirmSend(f,fresh);f.h.cleanup()
+})
+for(const desktop of [true,false]) {
+  test(`GM composer ${desktop?'desktop':'mobile'}: exactly two mode options, native input, explicit original retry and normal player label`,()=>{
+    const document={body:{style:{overflow:''}}},h=harness({}, {document})
+    const Panel=h.load('src/components/PlayChatPanel.tsx').default
+    let selected,retries=0,sends=0
+    const name='Elin '.repeat(40)
+    let props={isDesktop:desktop,isOpen:true,onClose(){},chat:emptyChat(),
+      composer:{...emptyComposer(),text:'Text',hasDifferentPendingAttempt:true,retry:()=>{retries++;return false},send:()=>{sends++;return false}},
+      disabledReason:null,speakerName:name,speakerSelection:{mode:'character',characterName:name,disabled:false,onChange:mode=>{selected=mode}},unreadCount:0,onRead(){}}
+    let tree=h.render(Panel,[props]),select=nodes(tree).find(n=>n.type==='select')
+    assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),['character','game_master'])
+    assert.equal(select.props.title,name);assert.equal(select.props.disabled,false)
+    assert.equal(select.props.onMouseDown,undefined);assert.equal(select.props.onPointerDown,undefined)
+    select.props.onChange({target:{value:'game_master'}});assert.equal(selected,'game_master')
+    nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Vorherigen Sendeversuch wiederholen').props.onClick()
+    assert.equal(retries,1);assert.equal(sends,0)
+    tree=h.render(Panel,[{...props,speakerSelection:{...props.speakerSelection,mode:'game_master',characterName:undefined}}])
+    assert.deepEqual(nodes(tree).filter(n=>n.type==='option').map(n=>n.props.value),['game_master'])
+    tree=h.render(Panel,[{...props,speakerSelection:undefined}])
+    assert.equal(nodes(tree).filter(n=>n.type==='select').length,0)
+    assert.match(textOf(tree),/Schreiben als Elin/);h.cleanup()
+  })
+}
+test('active-character query adds a server ID filter and drops obsolete records/responses on ID changes',async()=>{
+  const b=backend(),h=harness(b.api),hook=h.load('src/hooks/useRoundCharacters.ts').useRoundCharacters
+  h.render(hook,[round,`${user}:game_master`,other])
+  assert.equal(b.requests[0].id,other);assert.equal(b.requests[0].round_id,round);assert.equal(b.requests[0].deleted_at,null)
+  b.requests[0].resolve({data:[character(other)],error:null});await tick()
+  assert.equal(h.render().characters[0].id,other)
+  h.render().reload();const old=b.requests[1]
+  assert.equal(h.render(hook,[round,`${user}:game_master`,'B']).characters.length,0)
+  assert.equal(old.signal.aborted,true);assert.equal(b.requests[2].id,'B')
+  old.resolve({data:[character(other)],error:null});await tick()
+  assert.equal(h.render().characters.length,0)
+  b.requests[2].resolve({data:[character('B')],error:null});await tick()
+  assert.equal(h.render().characters[0].id,'B')
+  h.render(hook,[round,`${user}:player`,'B']);assert.equal(h.render().characters.length,0)
+  h.cleanup()
+})
+test('GM play page resolves only own active ID, reconciles rename and membership changes through existing subscriptions',async()=>{
+  const b=backend(),clock=browserClock()
+  const h=harness(b.api,clock,{
+    'react-router-dom':{useParams:()=>({roundId:round}),Link:'Link'},'../auth/useAuth':{useAuth:()=>({user:{id:user}})},
+    '../components/PlayModeHeader':{default:'PlayModeHeader'},'../components/PlayMainContent':{default:'PlayMainContent'},
+    '../components/PlayChatPanel':{default:'PlayChatPanel'},'../hooks/useRoundMessages':{useRoundMessages:emptyChat},
+  })
+  const Page=h.load('src/pages/RoundPlayPage.tsx').default
+  h.render(Page,[])
+  b.requests[0].resolve({data:roundData('game_master'),error:null})
+  b.requests[1].resolve({data:[{...member(user,'game_master'),active_character_id:other}],error:null});await tick()
+  assert.equal(h.render().props.isSpeakerLoading,true)
+  assert.equal(b.requests[2].table,'characters');assert.equal(b.requests[2].id,other)
+  b.requests[2].resolve({data:[{...character(other),name:'Elin'}],error:null});await tick()
+  assert.equal(h.render().props.activeCharacter.name,'Elin')
+  const channel=b.channels.find(c=>c.config.table==='characters')
+  assert.equal(channel.config.filter,`id=eq.${other}`)
+  channel.cb();clock.advance()
+  const refresh=b.requests.at(-1);assert.equal(refresh.id,other)
+  refresh.resolve({data:[{...character(other),name:'Elin Neu'}],error:null});await tick()
+  assert.equal(h.render().props.activeCharacter.name,'Elin Neu')
+  const membershipRequest=b.requests.findLast(r=>r.table==='round_memberships'&&!r.user_id)
+  membershipRequest.resolve({data:[{...member(user,'game_master'),active_character_id:round}],error:null});await tick()
+  assert.equal(h.render().props.activeCharacter,undefined)
+  assert.equal(b.requests.at(-1).id,round)
+  b.requests.at(-1).resolve({data:[character(round,'someone-else')],error:null});await tick()
+  assert.equal(h.render().props.activeCharacter,undefined,'GM read access to foreign characters never makes them selectable')
+  h.cleanup()
+})
+
+test('GM mode change during successful send leaves the request untouched and applies only to the next message',async()=>{
+  const f=gmSenderSetup()
+  f.render().composer.setText('Erste Nachricht')
+  const first=f.render().composer.send(),original={...f.b.requests[0].args}
+  f.render().speakerSelection.onChange('game_master')
+  assert.equal(f.render().composer.isSending,true)
+  assert.equal(await f.render().composer.send(),false)
+  assert.deepEqual({...f.b.requests[0].args},original)
+  await confirmSend(f,first)
+  assert.equal(f.render().speakerSelection.mode,'game_master')
+  assert.equal(f.render().composer.text,'')
+  f.render().composer.setText('Zweite Nachricht')
+  await confirmSend(f,f.render().composer.send())
+  assert.equal(f.b.requests[1].args.p_expected_active_character_id,null)
+  f.render().speakerSelection.onChange('character')
+  f.render({activeCharacter:{id:'B',name:'Birgit'},membership:{...member(user,'game_master'),active_character_id:'B'}})
+  f.render().composer.setText('Dritte Nachricht')
+  await confirmSend(f,f.render().composer.send())
+  assert.equal(f.b.requests[2].args.p_expected_active_character_id,'B')
+  assert.equal(new Set(f.b.requests.map(r=>r.args.p_client_request_id)).size,3)
+  f.h.cleanup()
+})

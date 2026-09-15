@@ -324,6 +324,45 @@ button {
   display: block;
   margin-bottom: var(--space-sm);
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.play-chat-speaker {
+  min-width: 0;
+  margin-bottom: var(--space-sm);
+}
+
+.play-chat-speaker select {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+}
+
+.play-chat-speaker select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.play-chat-pending-retry {
+  margin-top: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.play-chat-pending-retry .play-button {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .play-chat-compose-actions {

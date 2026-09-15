@@ -46,11 +46,23 @@ export function RoundPlayShell({ round, userId, membership, activeCharacter, isS
   const unreadCount = chat.messages.filter(message => message.round_seq > Math.max(lastSeenSeq, chat.initialLatestSeq ?? 0)).length
   const markRead = useCallback((seq: number) => setLastSeenSeq(previous => Math.max(previous, seq)), [])
   const isGameMaster = membership?.role === 'game_master'
-  const composer = useSendRoundMessage(round.id, userId, isGameMaster ? null : activeCharacter?.id ?? null, chat.reload, onAccessRefresh)
+  const role = membership?.role
+  const [speakerChoice, setSpeakerChoice] = useState<{
+    role: typeof role; mode: 'character' | 'game_master' | null
+  }>({ role, mode: null })
+  const choice = speakerChoice.role === role ? speakerChoice.mode : null
+  const speakerMode = activeCharacter ? choice ?? 'character' : 'game_master'
+  // Resolve defaults only after the scoped character read; preserve character mode
+  // while A is being replaced by B. A confirmed missing character selects narration.
+  if (speakerChoice.role !== role || (isGameMaster && !isSpeakerLoading && choice !== speakerMode)) {
+    setSpeakerChoice({ role, mode: isSpeakerLoading ? null : speakerMode })
+  }
+  const expectedCharacterId = isGameMaster && speakerMode === 'game_master' ? null : activeCharacter?.id ?? null
+  const composer = useSendRoundMessage(round.id, userId, expectedCharacterId, chat.reload, onAccessRefresh)
   const disabledReason = chat.accessDenied ? 'Du hast keinen Zugriff auf diesen Chat.'
     : round.locked_at ? 'Diese Runde ist gesperrt. Nachrichten können nicht gesendet werden.'
     : round.status === 'archived' ? 'Archivierte Runden können nicht mehr beschrieben werden.'
-    : !membership || chat.isLoading || (!isGameMaster && isSpeakerLoading) ? 'Deine Schreibberechtigung wird geprüft …'
+    : !membership || chat.isLoading || isSpeakerLoading ? 'Deine Schreibberechtigung wird geprüft …'
     : !isGameMaster && !activeCharacter ? 'Wähle zuerst einen aktiven Charakter.' : null
 
   return (
@@ -76,7 +88,13 @@ export function RoundPlayShell({ round, userId, membership, activeCharacter, isS
           chat={chat}
           composer={composer}
           disabledReason={disabledReason}
-          speakerName={isGameMaster ? 'Spielleitung' : activeCharacter?.name ?? null}
+          speakerName={isGameMaster && speakerMode === 'game_master' ? 'Spielleitung' : activeCharacter?.name ?? null}
+          speakerSelection={isGameMaster ? {
+            mode: speakerMode,
+            characterName: activeCharacter?.name,
+            disabled: isSpeakerLoading,
+            onChange: mode => setSpeakerChoice({ role, mode }),
+          } : undefined}
           unreadCount={unreadCount}
           onRead={markRead}
           onClose={() => {
@@ -101,8 +119,9 @@ function RoundPlayPage() {
   const round = isMembershipMissing ? null : loadedRound
   const membership = members.find(member => member.user_id === user?.id)
   const characterList = useRoundCharacters(
-    membership?.role === 'player' && membership.active_character_id ? round?.id : undefined,
-    user?.id,
+    membership?.active_character_id ? round?.id : undefined,
+    `${user?.id}:${membership?.role}`,
+    membership?.active_character_id ?? undefined,
   )
   const activeCharacter = characterList.characters.find(character =>
     character.id === membership?.active_character_id && character.owner_user_id === user?.id && character.round_id === round?.id)
@@ -125,7 +144,7 @@ function RoundPlayPage() {
   // Round/access and current speaker changes reconcile via the existing hooks.
   useRealtimeInvalidation({ scopeKey, table: 'rounds', filter: `id=eq.${roundId}`, onInvalidate: schedule })
   useRealtimeInvalidation({ scopeKey, table: 'round_memberships', filter: `round_id=eq.${roundId}`, includeInserts: true, onInvalidate: schedule })
-  useRealtimeInvalidation({ scopeKey: membership?.role === 'player' && membership.active_character_id ? scopeKey : undefined,
+  useRealtimeInvalidation({ scopeKey: membership?.active_character_id ? scopeKey : undefined,
     table: 'characters', filter: `id=eq.${membership?.active_character_id}`, onInvalidate: schedule })
 
   if (!isLoading && !error && round && user) {

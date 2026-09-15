@@ -11,12 +11,18 @@ type PlayChatPanelProps = {
   composer: ReturnType<typeof useSendRoundMessage>
   disabledReason: string | null
   speakerName: string | null
+  speakerSelection?: {
+    mode: 'character' | 'game_master'
+    characterName?: string
+    disabled: boolean
+    onChange: (mode: 'character' | 'game_master') => void
+  }
   unreadCount: number
   onRead: (seq: number) => void
 }
 const timeFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' })
 
-function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledReason, speakerName, unreadCount, onRead }: PlayChatPanelProps) {
+function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledReason, speakerName, speakerSelection, unreadCount, onRead }: PlayChatPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -77,11 +83,11 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
     onRead(latestSeq)
   }
   const canSend = !disabledReason && !composer.isSending && isValidMessageBody(composer.text)
-  const send = async () => {
+  const send = async (retryOriginal = false) => {
     if (!canSend || !isOpen) return
     const generation = lifetime.current
     const hadInputFocus = document.activeElement === inputRef.current
-    const sent = await composer.send()
+    const sent = await (retryOriginal ? composer.retry() : composer.send())
     if (generation !== lifetime.current) return
     // Wait for React to re-enable the field before focusing it. On failure,
     // restore only focus lost by disabling the input, not focus moved elsewhere.
@@ -125,7 +131,20 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
         Neue Nachrichten ({unreadCount}) ↓
       </button>}
       <form className="play-chat-composer" onSubmit={event => { event.preventDefault(); send() }}>
-        <label htmlFor="play-chat-message">{speakerName ? `Schreiben als ${speakerName}` : 'Nachricht'}</label>
+        {speakerSelection && <div className="play-chat-speaker">
+          <label htmlFor="play-chat-speaker-mode">Schreiben als:</label>
+          <select id="play-chat-speaker-mode" value={speakerSelection.mode}
+            disabled={speakerSelection.disabled} title={speakerName ?? undefined}
+            onChange={event => {
+              if (event.target.value === 'character' || event.target.value === 'game_master') {
+                speakerSelection.onChange(event.target.value)
+              }
+            }}>
+            {speakerSelection.characterName && <option value="character">{speakerSelection.characterName}</option>}
+            <option value="game_master">Spielleitung</option>
+          </select>
+        </div>}
+        <label htmlFor="play-chat-message">{speakerSelection ? 'Nachricht' : speakerName ? `Schreiben als ${speakerName}` : 'Nachricht'}</label>
         <textarea ref={inputRef} id="play-chat-message" rows={3} value={composer.text}
           placeholder="Deine IC-Nachricht …" disabled={Boolean(disabledReason) || composer.isSending}
           aria-describedby="play-chat-composer-hint" onChange={event => composer.setText(event.target.value)}
@@ -141,6 +160,12 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
         </div>
         <p id="play-chat-composer-hint">{disabledReason ?? 'Enter sendet · Shift+Enter fügt einen Zeilenumbruch ein.'}</p>
         {composer.error && <p className="play-chat-error" role="alert">{composer.error}</p>}
+        {composer.hasDifferentPendingAttempt && <div className="play-chat-pending-retry">
+          <p>Ein früherer Sendeversuch ist unbestätigt. „Senden“ beginnt eine neue Nachricht mit dem gewählten Absender.</p>
+          <button className="play-button" type="button" disabled={!canSend} onClick={() => send(true)}>
+            Vorherigen Sendeversuch wiederholen
+          </button>
+        </div>}
       </form>
     </div>
   )
