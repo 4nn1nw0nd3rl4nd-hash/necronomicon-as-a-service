@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { useRoundMessages } from '../hooks/useRoundMessages'
 import type { useSendRoundMessage } from '../hooks/useSendRoundMessage'
 import { isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
@@ -19,9 +19,26 @@ const timeFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeSt
 function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledReason, speakerName, unreadCount, onRead }: PlayChatPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const lifetime = useRef(0)
+  const [focusRequest, setFocusRequest] = useState<{ generation: number } | null>(null)
+  const consumedFocus = useRef<typeof focusRequest>(null)
   const positionRef = useRef({ wasOpen: false, oldest: 0, height: 0, nearBottom: true })
   const latestSeq = chat.messages.at(-1)?.round_seq ?? 0
   const oldestSeq = chat.messages[0]?.round_seq ?? 0
+
+  useLayoutEffect(() => {
+    const generation = ++lifetime.current
+    return () => { lifetime.current = generation + 1 }
+  }, [isOpen, isDesktop])
+
+  useLayoutEffect(() => {
+    if (!focusRequest || consumedFocus.current === focusRequest || composer.isSending) return
+    consumedFocus.current = focusRequest
+    if (isOpen && !disabledReason && focusRequest.generation === lifetime.current) {
+      inputRef.current?.focus({ preventScroll: true })
+    }
+  }, [focusRequest, composer.isSending, isOpen, disabledReason])
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current
@@ -60,12 +77,23 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
     onRead(latestSeq)
   }
   const canSend = !disabledReason && !composer.isSending && isValidMessageBody(composer.text)
-  const send = () => { if (canSend) void composer.send() }
+  const send = async () => {
+    if (!canSend || !isOpen) return
+    const generation = lifetime.current
+    const hadInputFocus = document.activeElement === inputRef.current
+    const sent = await composer.send()
+    if (generation !== lifetime.current) return
+    // Wait for React to re-enable the field before focusing it. On failure,
+    // restore only focus lost by disabling the input, not focus moved elsewhere.
+    if (sent || (hadInputFocus && (document.activeElement === document.body || document.activeElement === inputRef.current))) {
+      setFocusRequest({ generation })
+    }
+  }
   const content = (
     <div className="play-chat-content">
       <header className="play-chat-header">
         <h2 id="play-chat-title">Chat <span className="play-chat-kind">IC</span></h2>
-        <button className="play-button" type="button" onClick={onClose}>Chat schließen</button>
+        {!isDesktop && <button className="play-button" type="button" onClick={onClose}>Chat schließen</button>}
       </header>
       <div className="play-chat-history" ref={scrollRef} tabIndex={0} aria-label="Chatverlauf"
         onScroll={() => {
@@ -98,7 +126,7 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
       </button>}
       <form className="play-chat-composer" onSubmit={event => { event.preventDefault(); send() }}>
         <label htmlFor="play-chat-message">{speakerName ? `Schreiben als ${speakerName}` : 'Nachricht'}</label>
-        <textarea id="play-chat-message" rows={3} value={composer.text}
+        <textarea ref={inputRef} id="play-chat-message" rows={3} value={composer.text}
           placeholder="Deine IC-Nachricht …" disabled={Boolean(disabledReason) || composer.isSending}
           aria-describedby="play-chat-composer-hint" onChange={event => composer.setText(event.target.value)}
           onKeyDown={event => {

@@ -1968,3 +1968,66 @@ test('chat reconciles again on Postgres replication readiness after an earlier S
   h.cleanup();const after=b.requests.length
   ready.cb({extension:'system',status:'ok'});clock.advance();assert.equal(b.requests.length,after)
 })
+
+for(const desktop of [true,false]) {
+  test(`chat UX: ${desktop?'desktop has no redundant close':'mobile retains close and Escape'} and successful send refocuses the enabled composer`,async()=>{
+    const document={body:{style:{overflow:''}},activeElement:null}
+    const h=harness({}, {document}),Panel=h.load('src/components/PlayChatPanel.tsx').default
+    let finish,focuses=0,closes=0,text='Hello'
+    const composer={...emptyComposer(),text,send:()=>new Promise(resolve=>{finish=resolve}),setText:value=>{text=value}}
+    let props={isDesktop:desktop,isOpen:true,onClose:()=>closes++,chat:emptyChat(),composer,disabledReason:null,speakerName:'GM',unreadCount:0,onRead(){}}
+    const render=changes=>{props={...props,...changes};return h.render(Panel,[props])}
+    let tree=render()
+    const field={disabled:true,focus(options){assert.equal(this.disabled,false);assert.equal(options.preventScroll,true);document.activeElement=this;focuses++}}
+    const input=()=>nodes(tree).find(n=>n.type==='textarea')
+    input().props.ref.current=field
+    assert.equal(nodes(tree).filter(n=>n.type==='button'&&textOf(n)==='Chat schließen').length,desktop?0:1)
+    if(!desktop){
+      nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Chat schließen').props.onClick()
+      tree.props.onCancel({preventDefault(){}});assert.equal(closes,2)
+    }
+    nodes(tree).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+    tree=render({composer:{...composer,isSending:true}})
+    finish(true);await settle();tree=render();assert.equal(focuses,0,'wait for the enabled DOM commit')
+    field.disabled=false;tree=render({composer:{...composer,text:'',isSending:false}})
+    assert.equal(focuses,1);assert.equal(input().props.value,'');assert.equal(document.activeElement,field)
+    input().props.onChange({target:{value:'Next message'}});assert.equal(text,'Next message')
+    tree=render({chat:{...emptyChat(),messages:[chatMessage(1)]}});assert.equal(focuses,1,'later renders must not refocus')
+    h.cleanup()
+  })
+}
+
+for(const change of ['close','close-reopen','viewport','unmount']) {
+  test(`chat UX: pending send cannot steal focus after ${change}`,async()=>{
+    const document={body:{style:{overflow:''}},activeElement:null}
+    const h=harness({}, {document}),Panel=h.load('src/components/PlayChatPanel.tsx').default
+    let finish,focuses=0
+    const props={isDesktop:true,isOpen:true,onClose(){},chat:emptyChat(),composer:{...emptyComposer(),text:'Hello',send:()=>new Promise(resolve=>{finish=resolve})},disabledReason:null,speakerName:'GM',unreadCount:0,onRead(){}}
+    const tree=h.render(Panel,[props])
+    nodes(tree).find(n=>n.type==='textarea').props.ref.current={focus(){focuses++}}
+    nodes(tree).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+    if(change==='unmount')h.cleanup()
+    else if(change==='viewport')h.render(Panel,[{...props,isDesktop:false}])
+    else {h.render(Panel,[{...props,isOpen:false}]);if(change==='close-reopen')h.render(Panel,[props])}
+    const writes=h.stateWriteCount();finish(true);await settle()
+    assert.equal(h.stateWriteCount(),writes);assert.equal(focuses,0);h.cleanup()
+  })
+}
+
+for(const moved of [false,true]) {
+  test(`chat UX: failed send preserves text and ${moved?'respects focus moved elsewhere':'restores input focus lost while disabled'}`,async()=>{
+    const document={body:{style:{overflow:''}},activeElement:null}
+    const h=harness({}, {document}),Panel=h.load('src/components/PlayChatPanel.tsx').default
+    let finish,focuses=0
+    const field={focus(){document.activeElement=this;focuses++}}
+    const props={isDesktop:true,isOpen:true,onClose(){},chat:emptyChat(),composer:{...emptyComposer(),text:'Keep this',send:()=>new Promise(resolve=>{finish=resolve})},disabledReason:null,speakerName:'GM',unreadCount:0,onRead(){}}
+    let tree=h.render(Panel,[props]);nodes(tree).find(n=>n.type==='textarea').props.ref.current=field
+    document.activeElement=field
+    nodes(tree).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+    document.activeElement=moved?{otherButton:true}:document.body
+    finish(false);await settle()
+    tree=h.render(Panel,[{...props,composer:{...props.composer,error:'Offline'}}])
+    assert.equal(nodes(tree).find(n=>n.type==='textarea').props.value,'Keep this')
+    assert.match(textOf(tree),/Offline/);assert.equal(focuses,moved?0:1);h.cleanup()
+  })
+}
