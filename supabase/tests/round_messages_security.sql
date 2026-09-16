@@ -1,4 +1,4 @@
--- Run only after the Phase 3.1, Phase 3.2b, Phase 3.3a1 and Phase 3.3a2-1 migrations
+-- Run only after the Phase 3.1, Phase 3.2b, Phase 3.3a1, Phase 3.3a2-1, Phase 3.3b1 and Phase 3.3b2 migrations
 -- in an approved isolated test database, as postgres, with psql ON_ERROR_STOP enabled.
 -- Everything, including fixture accounts, rolls back. No production data edits.
 -- If ON_ERROR_STOP aborts execution, issue ROLLBACK in any still-open session.
@@ -355,7 +355,8 @@ select pg_temp.chat_error($q$delete from public.rounds where id=pg_temp.chat_id(
 -- Phase 3.3a1: isolated schema/RLS fixtures, not automatic assignment messages.
 -- The original test rounds, sends and sequence assertions above remain unchanged.
 insert into chat_test_ids(key) values
-  ('private_round'), ('private_character'), ('private_message'), ('private_gm_message');
+  ('private_round'), ('private_character'), ('private_message'), ('private_gm_message'),
+  ('public_system_message'), ('public_system_character_message');
 insert into public.rounds(id,name) values (pg_temp.chat_id('private_round'),'Private Chat Test');
 insert into public.round_memberships(round_id,user_id,role) values
 (pg_temp.chat_id('private_round'),pg_temp.chat_id('gm'),'game_master'),
@@ -371,6 +372,28 @@ insert into public.round_messages(id,round_id,round_seq,recipient_user_id,charac
 (pg_temp.chat_id('private_message'),pg_temp.chat_id('private_round'),3,pg_temp.chat_id('player'),pg_temp.chat_id('private_character'),'system_message','system','System','Dir wurde der Charakter Sven Svenson zugewiesen.',gen_random_uuid()),
 (pg_temp.chat_id('private_gm_message'),pg_temp.chat_id('private_round'),4,pg_temp.chat_id('gm'),null,'system_message','system','System','GM recipient fixture',gen_random_uuid());
 
+-- Phase 3.3b1: public system fixtures only, no productive message-producing RPC.
+insert into public.round_messages(id,round_id,round_seq,recipient_user_id,character_id,kind,speaker_kind,speaker_name_snapshot,body,client_request_id) values
+(pg_temp.chat_id('public_system_message'),pg_temp.chat_id('private_round'),5,null,null,'system_message','system','System','Public system fixture',gen_random_uuid()),
+(pg_temp.chat_id('public_system_character_message'),pg_temp.chat_id('private_round'),6,null,pg_temp.chat_id('private_character'),'system_message','system','System','Public system character fixture',gen_random_uuid());
+select pg_temp.check_chat((select count(*)=2 from public.round_messages
+  where id in (pg_temp.chat_id('private_message'),pg_temp.chat_id('private_gm_message'))
+    and kind='system_message' and speaker_kind='system' and speaker_name_snapshot='System'
+    and author_user_id is null and recipient_user_id is not null),
+  'private system messages remain valid with and without character reference');
+select pg_temp.check_chat((select recipient_user_id=pg_temp.chat_id('player')
+  and character_id=pg_temp.chat_id('private_character') from public.round_messages
+  where id=pg_temp.chat_id('private_message')),'private assignment keeps its character reference');
+select pg_temp.check_chat((select kind='system_message' and speaker_kind='system'
+  and speaker_name_snapshot='System' and author_user_id is null
+  and recipient_user_id is null and character_id is null from public.round_messages
+  where id=pg_temp.chat_id('public_system_message')),'public system message without character allowed');
+select pg_temp.check_chat((select kind='system_message' and speaker_kind='system'
+  and speaker_name_snapshot='System' and author_user_id is null
+  and recipient_user_id is null and character_id=pg_temp.chat_id('private_character')
+  from public.round_messages where id=pg_temp.chat_id('public_system_character_message')),
+  'public system message with character allowed');
+
 -- H/I/J/K: each candidate otherwise has valid fields, unique IDs and a valid FK.
 -- Check failures must be CHECK violations, not access/NOT NULL/FK/uniqueness errors.
 do $$
@@ -378,7 +401,10 @@ declare
   candidate record;
 begin
   for candidate in select * from (values
-    ('public system forbidden','system_message','system','System',null::uuid,null::uuid,null::uuid),
+    ('public system author forbidden','system_message','system','System',null::uuid,pg_temp.chat_id('gm'),null::uuid),
+    ('public system character speaker forbidden','system_message','character','System',null::uuid,null::uuid,null::uuid),
+    ('public system GM speaker forbidden','system_message','game_master','Spielleitung',null::uuid,null::uuid,null::uuid),
+    ('public system wrong snapshot forbidden','system_message','system','Spielleitung',null::uuid,null::uuid,null::uuid),
     ('private character forbidden','character_message','character','Sven',pg_temp.chat_id('player'),null::uuid,null::uuid),
     ('system author forbidden','system_message','system','System',pg_temp.chat_id('player'),pg_temp.chat_id('gm'),null::uuid),
     ('system character speaker forbidden','system_message','character','System',pg_temp.chat_id('player'),null::uuid,null::uuid),
@@ -434,6 +460,9 @@ begin
     perform pg_temp.check_chat((select count(*)=case when viewer.can_read then 2 else 0 end
       from public.round_messages where round_id=pg_temp.chat_id('private_round') and kind='character_message'),
       viewer.user_key || ' public character and GM history visibility');
+    perform pg_temp.check_chat((select count(*)=case when viewer.can_read then 2 else 0 end
+      from public.round_messages where id in (pg_temp.chat_id('public_system_message'),pg_temp.chat_id('public_system_character_message'))),
+      viewer.user_key || ' public system history visibility with normal round access');
     perform pg_temp.check_chat((select count(*)=case when viewer.is_recipient then 1 else 0 end
       from public.round_messages where id=pg_temp.chat_id('private_message')),
       viewer.user_key || ' private assignment visibility by known message ID');
@@ -448,6 +477,9 @@ select pg_temp.check_chat(not has_table_privilege('authenticated','public.round_
 
 -- Both kinds retain their stored name/body after rename and character harddelete.
 reset role;
+-- Restore the original fixture counts for the existing lifecycle assertions.
+delete from public.round_messages
+where id in (pg_temp.chat_id('public_system_message'),pg_temp.chat_id('public_system_character_message'));
 update public.characters set name='Sven Neu' where id=pg_temp.chat_id('private_character');
 select pg_temp.check_chat((select body='Dir wurde der Charakter Sven Svenson zugewiesen.'
   from public.round_messages where id=pg_temp.chat_id('private_message')),'private assignment text survives rename');
@@ -635,6 +667,11 @@ select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(p
   'P0001','Target user is not a member of this round');
 -- A real sequential transfer proves the final current-role check (not concurrency).
 select public.transfer_game_master(pg_temp.chat_id('assignment_round'),pg_temp.chat_id('second'));
+select pg_temp.check_chat((select count(*)=1 from public.round_messages
+  where round_id=pg_temp.chat_id('assignment_round') and round_seq=4
+    and kind='system_message' and recipient_user_id is null and author_user_id is null
+    and character_id is null and speaker_kind='system' and speaker_name_snapshot='System'),
+  'transfer sequence follows all three private assignment messages');
 select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('player'))$q$,
   'P0001','Character is not available');
 select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('player'))$q$,
@@ -642,7 +679,9 @@ select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(p
 reset role;
 select pg_temp.check_chat((select owner_user_id is null from public.characters where id=pg_temp.chat_id('assignment_failure'))
   and (select count(*)=5 from public.characters where round_id=pg_temp.chat_id('assignment_round'))
-  and (select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('assignment_round'))
+  and (select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
+    and kind='system_message' and recipient_user_id is not null),
   'rejected assignments leave characters copies and messages unchanged');
 -- A paused round still permits assignment; the previously failed original is usable.
 update public.rounds set status='paused' where id=pg_temp.chat_id('assignment_round');
@@ -650,7 +689,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
 select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'));
 select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
-  and character_id=pg_temp.chat_id('assignment_failure') and round_seq=4),'assignment succeeds in paused round after rollback');
+  and character_id=pg_temp.chat_id('assignment_failure') and round_seq=5),'assignment succeeds in paused round after rollback');
 reset role;
 update public.characters set name='Sven Neu' where id=pg_temp.chat_id('assignment_original');
 update public.characters set round_id=null where id=pg_temp.chat_id('assignment_original');
@@ -658,6 +697,109 @@ delete from public.characters where id=pg_temp.chat_id('assignment_original');
 select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
   and round_seq=1 and character_id is null and body='Dir wurde der Charakter Sven Svenson zugewiesen.'
   and recipient_user_id=pg_temp.chat_id('player')),'real assignment snapshot survives rename removal and harddelete');
+
+-- Phase 3.3b2: isolated real transfers; all fixture changes still roll back.
+insert into chat_test_ids(key) values ('transfer_round');
+insert into public.rounds(id,name) values (pg_temp.chat_id('transfer_round'),'Transfer Chat Test');
+insert into public.round_memberships(round_id,user_id,role) values
+(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'),'game_master'),
+(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('second'),'player'),
+(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('player'),'player');
+select pg_temp.check_chat(
+  has_function_privilege('authenticated','public.transfer_game_master(uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.transfer_game_master(uuid,uuid)','EXECUTE'),
+  'transfer execute grants preserved');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,
+  'P0001','User is already game master');
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('admin'))$q$,
+  'P0001','New game master must be a player in the round');
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),gen_random_uuid())$q$,
+  'P0001','Transfer profile is not available');
+select pg_temp.check_chat((select count(*)=0 from public.round_messages where round_id=pg_temp.chat_id('transfer_round')),
+  'invalid transfer targets create no message');
+select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('second'));
+select pg_temp.check_chat(
+  (select role='player' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=auth.uid())
+  and (select role='game_master' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('second')),
+  'transfer demotes caller and promotes target');
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round'))
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round')
+    and round_seq=1 and kind='system_message' and speaker_kind='system' and speaker_name_snapshot='System'
+    and author_user_id is null and recipient_user_id is null and character_id is null
+    and body='@chat31_'||pg_temp.chat_id('second')::text||' ist jetzt Spielleitung.'
+    and client_request_id is not null and created_at is not null),
+  'transfer creates exactly one public server snapshot with sequence one');
+-- The old caller cannot repeat a successful transfer with stale GM authority.
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('second'))$q$,
+  'P0001','Not authorized');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,
+  'P0001','Not authorized');
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round')),
+  'old GM retry and unauthorized player create no second message');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('admin')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,
+  'P0001','Not authorized');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('super')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,
+  'P0001','Not authorized');
+reset role;
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round')),
+  'administrative accounts cannot transfer or create messages without GM membership');
+update public.profiles set username='chat31_renamed_'||id::text where id=pg_temp.chat_id('second');
+select pg_temp.check_chat((select body='@chat31_'||pg_temp.chat_id('second')::text||' ist jetzt Spielleitung.'
+  from public.round_messages where round_id=pg_temp.chat_id('transfer_round') and round_seq=1),
+  'transfer snapshot survives later username change');
+
+-- Force failure AFTER both updates via the existing round_seq CHECK, not a trigger.
+insert into public.round_messages(round_id,round_seq,speaker_kind,speaker_name_snapshot,body,client_request_id)
+values(pg_temp.chat_id('transfer_round'),9007199254740991,'game_master','Spielleitung','Transfer sequence limit',gen_random_uuid());
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,'23514');
+reset role;
+select pg_temp.check_chat(
+  (select role='game_master' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('second'))
+  and (select role='player' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('gm'))
+  and (select count(*)=1 from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and role='game_master')
+  and (select count(*)=2 from public.round_messages where round_id=pg_temp.chat_id('transfer_round'))
+  and (select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round') and kind='system_message'),
+  'transfer message failure rolls back both roles with no partial message');
+delete from public.round_messages where round_id=pg_temp.chat_id('transfer_round') and round_seq=9007199254740991;
+
+-- Transfer, unlike chat sending, remains allowed in paused AND archived rounds.
+update public.rounds set status='paused' where id=pg_temp.chat_id('transfer_round');
+set local role authenticated;
+select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'));
+reset role;
+update public.rounds set status='archived' where id=pg_temp.chat_id('transfer_round');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('second'));
+reset role;
+select pg_temp.check_chat((select array_agg(round_seq order by round_seq)=array[1,2,3]::bigint[]
+  from public.round_messages where round_id=pg_temp.chat_id('transfer_round'))
+  and (select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('transfer_round')
+    and kind='system_message' and author_user_id is null and recipient_user_id is null and character_id is null)
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('transfer_round') and round_seq=3
+    and body='@chat31_renamed_'||pg_temp.chat_id('second')::text||' ist jetzt Spielleitung.'),
+  'active paused archived transfers use unique ordered sequences and current snapshots');
+update public.rounds set locked_at=now(),locked_reason='Transfer test' where id=pg_temp.chat_id('transfer_round');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select pg_temp.chat_error($q$select public.transfer_game_master(pg_temp.chat_id('transfer_round'),pg_temp.chat_id('gm'))$q$,
+  'P0001','Round is locked');
+reset role;
+select pg_temp.check_chat((select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('transfer_round'))
+  and (select role='game_master' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('second'))
+  and (select role='player' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('gm'))
+  and not exists(select 1 from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and active_character_id is not null),
+  'locked transfer leaves roles messages and active selections unchanged');
+
+-- Phase 3.3b3: real parallel transfer/send/assignment/deletion and Realtime tests
+-- remain required; this single-transaction script proves no concurrent behavior.
 
 -- Phase 3.3a2-2 remains a SEPARATE step after static review and staging application:
 -- independent connections for recipient/other-player sends, duplicate assignments,

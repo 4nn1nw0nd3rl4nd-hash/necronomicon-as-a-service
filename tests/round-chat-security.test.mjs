@@ -118,7 +118,7 @@ test('Phase 3.3a1 adds only a nullable cascading recipient and replaces the orig
   assert.match(privateFoundation,/check \(kind in \('character_message', 'system_message'\)\)/)
   assert.match(privateFoundation,/check \(speaker_kind in \('character', 'game_master', 'system'\)\)/)
 })
-test('Phase 3.3a1 combinations prohibit public system rows, private character rows and attributed system authors',()=>{
+test('historical Phase 3.3a1 identity restricts system recipients before the Phase 3.3b1 relaxation',()=>{
   assert.match(privateFoundation,/add constraint round_messages_message_identity check \( \( kind = 'character_message' and recipient_user_id is null and speaker_kind in \('character', 'game_master'\) \) or \( kind = 'system_message' and speaker_kind = 'system' and recipient_user_id is not null and author_user_id is null and speaker_name_snapshot = 'System' \) \)/)
   assert.doesNotMatch(privateFoundation,/character_id is not null/)
   assert.match(schema,/constraint round_messages_gm_identity check \(\s+speaker_kind <> 'game_master'\s+or \(character_id is null and speaker_name_snapshot = 'Spielleitung'\)/)
@@ -126,6 +126,23 @@ test('Phase 3.3a1 combinations prohibit public system rows, private character ro
   assert.match(schema,/client_request_id uuid not null/)
   assert.match(schema,/unique \(author_user_id, client_request_id\)/)
   assert.match(schema,/unique \(round_id, round_seq\)/)
+})
+const publicFoundation=readFileSync('supabase/migrations/20260916100000_allow_public_system_messages.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+
+test('Phase 3.3b1 only allows both public and private system recipients, keeping strict system and character identities',()=>{
+  assert.equal(publicFoundation, `alter table public.round_messages
+    drop constraint round_messages_message_identity,
+    add constraint round_messages_message_identity check (
+      ( kind = 'character_message' and recipient_user_id is null
+        and speaker_kind in ('character', 'game_master') )
+      or ( kind = 'system_message' and speaker_kind = 'system'
+        and author_user_id is null and speaker_name_snapshot = 'System' )
+    );`.replace(/\s+/g,' ').trim())
+  // The entire replacement must equal the historical CHECK minus this one rule.
+  const previous=privateFoundation.slice(privateFoundation.indexOf('add constraint round_messages_message_identity'),privateFoundation.indexOf(';'))
+  assert.equal(publicFoundation.slice(publicFoundation.indexOf('add constraint')),
+    previous.replace(' and recipient_user_id is not null','')+';')
 })
 test('Phase 3.3a1 narrows the sole existing SELECT policy with AND; no functions, grants, writes or publication changes',()=>{
   assert.match(privateFoundation,/alter policy "Current members can read round chat" on public.round_messages using \( public.can_read_round_messages\(round_id\) and \(recipient_user_id is null or recipient_user_id = \(select auth.uid\(\)\)\) \);$/)
@@ -138,7 +155,12 @@ test('Phase 3.3a1 SQL fixtures cover recipient RLS, invalid identities and catal
   const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
   const fixtures=sql.slice(sql.indexOf('-- Phase 3.3a1:'))
   for(const label of [
-    'public system forbidden','private character forbidden','system author forbidden',
+    'public system message without character allowed','public system message with character allowed',
+    'private system messages remain valid with and without character reference','private assignment keeps its character reference',
+    'public system author forbidden','public system character speaker forbidden',
+    'public system GM speaker forbidden','public system wrong snapshot forbidden',
+    'public system history visibility with normal round access',
+    'private character forbidden','system author forbidden',
     'system character speaker forbidden','system GM speaker forbidden','system wrong snapshot forbidden',
     'character system speaker forbidden','GM character ID forbidden','GM wrong snapshot forbidden',
     'private assignment visibility by known message ID','GM has private access only as recipient',
@@ -234,5 +256,78 @@ test('assignment SQL tests cover real RPCs, RLS, copy, self-assignment and late-
   assert.match(block,/9007199254740991/)
   assert.match(block,/assign_prepared_character_keep_copy[^\n]+\$q\$,'23514'/)
   assert.match(block,/Phase 3.3a2-2 remains a SEPARATE step/)
+  assert.doesNotMatch(block,/delete from (?:auth\.users|public\.profiles)|dblink/i)
+})
+
+const transferCode=readFileSync('supabase/migrations/20260916110000_emit_game_master_transfer_messages.sql','utf8').replace(/--[^\n]*/g,'')
+const transfer=transferCode.replace(/\s+/g,' ').trim()
+test('transfer keeps its public signature, security and grants without changing other database objects',()=>{
+  assert.match(transfer,/^create or replace function public\.transfer_game_master\( p_round_id uuid, p_new_game_master_id uuid \) returns void language plpgsql security definer set search_path = '' as \$\$/)
+  assert.match(transfer,/end; \$\$;$/)
+  assert.equal((transfer.match(/create or replace function/g)||[]).length,1)
+  assert.doesNotMatch(transfer,/\b(?:alter|drop|grant|revoke|policy|trigger|publication|delete|commit|rollback|exception when|deletion_pending_at|status|is_round_game_master)\b/i)
+  assert.match(transfer,/caller_user_id uuid := auth\.uid\(\);/)
+  assert.match(transfer,/if caller_user_id is null then raise exception 'Not authenticated'; end if; if p_round_id is null or p_new_game_master_id is null then raise exception 'Invalid transfer parameters'; end if;/)
+})
+test('transfer locks ordered profiles before the shared sequence, round, caller and target memberships',()=>{
+  const steps=[
+    "raise exception 'Invalid transfer parameters'",
+    'perform id from public.profiles',
+    'for key share;',
+    'perform pg_catalog.pg_advisory_xact_lock',
+    'select locked_at into current_locked_at from public.rounds',
+    "if current_locked_at is not null then raise exception 'Round is locked'; end if;",
+    'select role into caller_membership_role from public.round_memberships',
+    "if not found or caller_membership_role is distinct from 'game_master'",
+    "if caller_user_id = p_new_game_master_id then raise exception 'User is already game master'; end if;",
+    'select role into target_membership_role from public.round_memberships',
+    "if not found or target_membership_role is distinct from 'player'",
+    'select username into target_username from public.profiles',
+    "update public.round_memberships set role = 'player'",
+    "update public.round_memberships set role = 'game_master'",
+    'select coalesce(max(round_seq), 0) + 1 into next_round_seq',
+    'insert into public.round_messages',
+  ].map(text=>transfer.indexOf(text))
+  assert.ok(steps.every((position,index)=>position>=0 && (index===0 || position>steps[index-1])))
+  assert.match(transfer,/perform id from public\.profiles where id in \(caller_user_id, p_new_game_master_id\) order by id for key share; get diagnostics locked_profile_count = row_count; if locked_profile_count <> \(case when caller_user_id = p_new_game_master_id then 1 else 2 end\) then raise exception 'Transfer profile is not available'; end if;/)
+  assert.match(transfer,/perform pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\( 'round-message-sequence:' \|\| p_round_id::text, 0\)\);/)
+  assert.match(transfer,/select locked_at into current_locked_at from public\.rounds where id = p_round_id for share; if not found then raise exception 'Round does not exist'; end if;/)
+  assert.deepEqual(transfer.match(/for (?:key share|share|update);/g),['for key share;','for share;','for update;','for update;'])
+  assert.equal((transfer.match(/pg_advisory_xact_lock/g)||[]).length,1)
+  assert.match(sender,/'round-message-sequence:' \|\| p_round_id::text, 0/)
+  assert.match(assignmentCore,/'round-message-sequence:' \|\| initial_round_id::text, 0/)
+})
+test('transfer checks locked caller and target roles and exactly one row for each demotion/promotion',()=>{
+  assert.match(transfer,/select role into caller_membership_role from public\.round_memberships where round_id = p_round_id and user_id = caller_user_id for update; if not found or caller_membership_role is distinct from 'game_master' then raise exception 'Not authorized'; end if;/)
+  assert.match(transfer,/select role into target_membership_role from public\.round_memberships where round_id = p_round_id and user_id = p_new_game_master_id for update; if not found or target_membership_role is distinct from 'player' then raise exception 'New game master must be a player in the round'; end if;/)
+  assert.match(transfer,/update public\.round_memberships set role = 'player' where round_id = p_round_id and user_id = caller_user_id and role = 'game_master'; get diagnostics updated_membership_count = row_count; if updated_membership_count <> 1 then raise exception 'Game master update failed'; end if;/)
+  assert.match(transfer,/update public\.round_memberships set role = 'game_master' where round_id = p_round_id and user_id = p_new_game_master_id and role = 'player'; get diagnostics updated_membership_count = row_count; if updated_membership_count <> 1 then raise exception 'New game master update failed'; end if;/)
+  assert.equal((transfer.match(/\bupdate public\./g)||[]).length,2)
+})
+test('transfer inserts one public system snapshot with no account or character FK and no client message API',()=>{
+  assert.match(transfer,/select username into target_username from public\.profiles where id = p_new_game_master_id;/)
+  assert.match(transfer,/select coalesce\(max\(round_seq\), 0\) \+ 1 into next_round_seq from public\.round_messages where round_id = p_round_id;/)
+  assert.match(transfer,/insert into public\.round_messages \( round_id, round_seq, author_user_id, character_id, speaker_kind, speaker_name_snapshot, kind, recipient_user_id, body, client_request_id \) values \( p_round_id, next_round_seq, null, null, 'system', 'System', 'system_message', null, '@' \|\| target_username \|\| ' ist jetzt Spielleitung\.', pg_catalog\.gen_random_uuid\(\) \);/)
+  assert.equal((transfer.match(/\binsert into\b/g)||[]).length,1)
+  assert.doesNotMatch(transfer,/p_body|p_client_request_id|p_recipient|nextval|setval|on conflict|active_character_id|substring|left\(/)
+})
+test('transfer SQL tests cover rollback, stale authority, snapshots, statuses and private sequence coexistence',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const block=sql.slice(sql.indexOf('-- Phase 3.3b2:'))
+  for(const label of [
+    'transfer execute grants preserved','invalid transfer targets create no message',
+    'transfer demotes caller and promotes target',
+    'transfer creates exactly one public server snapshot with sequence one',
+    'old GM retry and unauthorized player create no second message',
+    'administrative accounts cannot transfer or create messages without GM membership',
+    'transfer snapshot survives later username change',
+    'transfer message failure rolls back both roles with no partial message',
+    'active paused archived transfers use unique ordered sequences and current snapshots',
+    'locked transfer leaves roles messages and active selections unchanged',
+  ]) assert.ok(block.includes(label),label)
+  assert.match(block,/transfer_game_master[^\n]+\$q\$,'23514'/)
+  assert.match(block,/9007199254740991/)
+  assert.match(sql,/transfer sequence follows all three private assignment messages/)
+  assert.match(sql,/character_id=pg_temp.chat_id\('assignment_failure'\) and round_seq=5/)
   assert.doesNotMatch(block,/delete from (?:auth\.users|public\.profiles)|dblink/i)
 })
