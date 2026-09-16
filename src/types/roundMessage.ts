@@ -6,16 +6,17 @@ export type RoundMessage = {
   round_id: string
   round_seq: number
   author_user_id: string | null
+  recipient_user_id: string | null
   character_id: string | null
-  speaker_kind: 'character' | 'game_master'
+  speaker_kind: 'character' | 'game_master' | 'system'
   speaker_name_snapshot: string
-  kind: 'character_message'
+  kind: 'character_message' | 'system_message'
   body: string
   client_request_id: string
   created_at: string
 }
 
-export const roundMessageFields = 'id,round_id,round_seq,author_user_id,character_id,speaker_kind,speaker_name_snapshot,kind,body,client_request_id,created_at'
+export const roundMessageFields = 'id,round_id,round_seq,author_user_id,recipient_user_id,character_id,speaker_kind,speaker_name_snapshot,kind,body,client_request_id,created_at'
 
 export function isValidMessageBody(body: string) {
   return body.trim().length > 0 && Array.from(body).length <= ROUND_MESSAGE_MAX_LENGTH

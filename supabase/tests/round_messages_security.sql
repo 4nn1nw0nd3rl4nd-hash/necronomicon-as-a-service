@@ -1,4 +1,4 @@
--- Run only after the Phase 3.1, Phase 3.2b and Phase 3.3a1 migrations
+-- Run only after the Phase 3.1, Phase 3.2b, Phase 3.3a1 and Phase 3.3a2-1 migrations
 -- in an approved isolated test database, as postgres, with psql ON_ERROR_STOP enabled.
 -- Everything, including fixture accounts, rolls back. No production data edits.
 -- If ON_ERROR_STOP aborts execution, issue ROLLBACK in any still-open session.
@@ -498,6 +498,171 @@ select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
 select pg_temp.check_chat((select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('private_round')),
   'rejoined recipient sees public and own private history again');
 reset role;
+
+-- Phase 3.3a2-1: real public assignment RPCs in an isolated round.
+insert into chat_test_ids(key) values
+  ('assignment_round'), ('assignment_original'), ('assignment_copy_original'),
+  ('assignment_self'), ('assignment_failure');
+insert into public.rounds(id,name) values (pg_temp.chat_id('assignment_round'),'Assignment Chat Test');
+insert into public.round_memberships(round_id,user_id,role) values
+(pg_temp.chat_id('assignment_round'),pg_temp.chat_id('gm'),'game_master'),
+(pg_temp.chat_id('assignment_round'),pg_temp.chat_id('player'),'player'),
+(pg_temp.chat_id('assignment_round'),pg_temp.chat_id('second'),'player');
+insert into public.characters(id,name,round_id,template_key,template_version)
+select id,case key when 'assignment_original' then 'Sven Svenson'
+  when 'assignment_copy_original' then 'Original zum Kopieren'
+  when 'assignment_self' then 'GM Original' else 'Rollback Original' end,
+  pg_temp.chat_id('assignment_round'),'vaesen',1
+from chat_test_ids where key in ('assignment_original','assignment_copy_original','assignment_self','assignment_failure');
+
+-- The internal definer is not an additional externally callable RPC.
+select pg_temp.check_chat(not exists (
+  select 1 from pg_catalog.pg_proc p,
+    lateral pg_catalog.aclexplode(coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+  where p.oid='public.assign_prepared_character_internal(uuid,uuid,boolean)'::regprocedure
+    and acl.grantee=0 and acl.privilege_type='EXECUTE'
+),'assignment internal helper has no PUBLIC execute');
+select pg_temp.check_chat(
+  not has_function_privilege('anon','public.assign_prepared_character_internal(uuid,uuid,boolean)','EXECUTE')
+  and not has_function_privilege('authenticated','public.assign_prepared_character_internal(uuid,uuid,boolean)','EXECUTE'),
+  'assignment internal helper denies anon and authenticated');
+select pg_temp.check_chat(
+  has_function_privilege('authenticated','public.assign_prepared_character(uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.assign_prepared_character_keep_copy(uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.assign_prepared_character(uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.assign_prepared_character_keep_copy(uuid,uuid)','EXECUTE'),
+  'assignment public RPC execute grants preserved');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select pg_temp.chat_error($q$select public.assign_prepared_character_internal(pg_temp.chat_id('assignment_original'),pg_temp.chat_id('player'),false)$q$,'42501');
+select public.assign_prepared_character(pg_temp.chat_id('assignment_original'),pg_temp.chat_id('player'));
+select pg_temp.check_chat((select owner_user_id=pg_temp.chat_id('player') from public.characters
+  where id=pg_temp.chat_id('assignment_original')),'assignment sets original owner');
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('assignment_original') from public.round_memberships
+  where round_id=pg_temp.chat_id('assignment_round') and user_id=pg_temp.chat_id('player')),
+  'assignment trigger selects the sole owned character');
+select pg_temp.check_chat((select count(*)=0 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'assigning GM cannot read recipient message');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select pg_temp.check_chat(public.can_read_round_messages(pg_temp.chat_id('assignment_round'))
+  and (select count(*)=0 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'other current member cannot read assignment message');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'recipient reads exactly one assignment message');
+select pg_temp.check_chat((select character_id=pg_temp.chat_id('assignment_original')
+  and recipient_user_id=auth.uid() and author_user_id is null and speaker_kind='system'
+  and speaker_name_snapshot='System' and kind='system_message' and round_seq=1
+  and body='Dir wurde der Charakter Sven Svenson zugewiesen.'
+  and client_request_id is not null and created_at is not null
+  from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'assignment message has server identity snapshot request and sequence');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_original'),pg_temp.chat_id('player'))$q$,
+  'P0001','Character already has an owner');
+
+-- Return value remains the new prepared copy ID; the message names the ORIGINAL.
+do $$
+declare copied_id uuid;
+begin
+  copied_id := public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_copy_original'),pg_temp.chat_id('player'));
+  perform pg_temp.check_chat(copied_id is not null and copied_id<>pg_temp.chat_id('assignment_copy_original')
+    and exists(select 1 from public.characters where id=copied_id and owner_user_id is null
+      and round_id=pg_temp.chat_id('assignment_round') and name='Original zum Kopieren – Kopie'
+      and created_by_user_id=auth.uid()),'keep_copy returns a new prepared copy');
+  perform pg_temp.check_chat((select owner_user_id=pg_temp.chat_id('player') from public.characters
+    where id=pg_temp.chat_id('assignment_copy_original')),'keep_copy assigns original');
+  perform pg_temp.check_chat((select active_character_id=pg_temp.chat_id('assignment_original') from public.round_memberships
+    where round_id=pg_temp.chat_id('assignment_round') and user_id=pg_temp.chat_id('player')),
+    'assignment preserves an existing valid active character');
+end;
+$$;
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_copy_original'),pg_temp.chat_id('player'))$q$,
+  'P0001','Character already has an owner');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+select pg_temp.check_chat((select count(*)=1 from public.round_messages
+  where round_id=pg_temp.chat_id('assignment_round') and character_id=pg_temp.chat_id('assignment_copy_original')
+    and recipient_user_id=auth.uid() and round_seq=2 and body='Dir wurde der Charakter Original zum Kopieren zugewiesen.'),
+  'keep_copy emits exactly one message for original');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select public.assign_prepared_character(pg_temp.chat_id('assignment_self'),pg_temp.chat_id('gm'));
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round'))
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
+    and character_id=pg_temp.chat_id('assignment_self') and recipient_user_id=auth.uid()
+    and author_user_id is null and round_seq=3 and body='Dir wurde der Charakter GM Original zugewiesen.'),
+  'GM self-assignment sees only own private message');
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('assignment_self') from public.round_memberships
+  where round_id=pg_temp.chat_id('assignment_round') and user_id=auth.uid()),'GM self-assignment recalculates active character');
+reset role;
+select pg_temp.check_chat((select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('assignment_round'))
+  and (select count(*)=5 from public.characters where round_id=pg_temp.chat_id('assignment_round')),
+  'assignment retries create neither extra messages nor extra copies');
+
+-- Fail AFTER owner update, trigger and optional copy using the existing seq CHECK.
+-- chat_error's exception subtransaction must roll back the entire RPC call.
+insert into public.round_messages(round_id,round_seq,speaker_kind,speaker_name_snapshot,body,client_request_id)
+values(pg_temp.chat_id('assignment_round'),9007199254740991,'game_master','Spielleitung','Sequence limit fixture',gen_random_uuid());
+set local role authenticated;
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,'23514');
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,'23514');
+reset role;
+select pg_temp.check_chat((select owner_user_id is null from public.characters where id=pg_temp.chat_id('assignment_failure'))
+  and (select active_character_id is null from public.round_memberships
+    where round_id=pg_temp.chat_id('assignment_round') and user_id=pg_temp.chat_id('second'))
+  and (select count(*)=5 from public.characters where round_id=pg_temp.chat_id('assignment_round'))
+  and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'message failure rolls back owner active selection copy and message');
+delete from public.round_messages where round_id=pg_temp.chat_id('assignment_round') and round_seq=9007199254740991;
+
+-- Existing status/member rules; both entry points must fail without partial copies.
+update public.rounds set status='archived' where id=pg_temp.chat_id('assignment_round');
+set local role authenticated;
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,
+  'P0001','Cannot assign prepared character in archived round');
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,
+  'P0001','Cannot assign prepared character in archived round');
+reset role;
+update public.rounds set status='active',locked_at=now(),locked_reason='Assignment test' where id=pg_temp.chat_id('assignment_round');
+set local role authenticated;
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,'P0001','Round is locked');
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'))$q$,'P0001','Round is locked');
+reset role;
+update public.rounds set locked_at=null,locked_reason=null where id=pg_temp.chat_id('assignment_round');
+set local role authenticated;
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('admin'))$q$,
+  'P0001','Target user is not a member of this round');
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('admin'))$q$,
+  'P0001','Target user is not a member of this round');
+-- A real sequential transfer proves the final current-role check (not concurrency).
+select public.transfer_game_master(pg_temp.chat_id('assignment_round'),pg_temp.chat_id('second'));
+select pg_temp.chat_error($q$select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('player'))$q$,
+  'P0001','Character is not available');
+select pg_temp.chat_error($q$select public.assign_prepared_character_keep_copy(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('player'))$q$,
+  'P0001','Character is not available');
+reset role;
+select pg_temp.check_chat((select owner_user_id is null from public.characters where id=pg_temp.chat_id('assignment_failure'))
+  and (select count(*)=5 from public.characters where round_id=pg_temp.chat_id('assignment_round'))
+  and (select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')),
+  'rejected assignments leave characters copies and messages unchanged');
+-- A paused round still permits assignment; the previously failed original is usable.
+update public.rounds set status='paused' where id=pg_temp.chat_id('assignment_round');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select public.assign_prepared_character(pg_temp.chat_id('assignment_failure'),pg_temp.chat_id('second'));
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
+  and character_id=pg_temp.chat_id('assignment_failure') and round_seq=4),'assignment succeeds in paused round after rollback');
+reset role;
+update public.characters set name='Sven Neu' where id=pg_temp.chat_id('assignment_original');
+update public.characters set round_id=null where id=pg_temp.chat_id('assignment_original');
+delete from public.characters where id=pg_temp.chat_id('assignment_original');
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('assignment_round')
+  and round_seq=1 and character_id is null and body='Dir wurde der Charakter Sven Svenson zugewiesen.'
+  and recipient_user_id=pg_temp.chat_id('player')),'real assignment snapshot survives rename removal and harddelete');
+
+-- Phase 3.3a2-2 remains a SEPARATE step after static review and staging application:
+-- independent connections for recipient/other-player sends, duplicate assignments,
+-- duplicate keep_copy, active selection, membership removal, GM transfer,
+-- round lock/archive and prepare_user_deletion. No parallel harness in 3.3a2-1.
 
 -- MANUAL / SEPARATE TEST: use independent connections in a controlled disposable
 -- environment; this single-transaction script does not test concurrency.

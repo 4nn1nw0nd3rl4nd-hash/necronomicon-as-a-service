@@ -155,3 +155,84 @@ test('Phase 3.3a1 SQL fixtures cover recipient RLS, invalid identities and catal
   assert.match(sql,/rollback;\s*$/)
   assert.doesNotMatch(sql,/delete from (?:auth\.users|public\.profiles)/i)
 })
+
+const assignmentSql=readFileSync('supabase/migrations/20260915120000_emit_private_prepared_assignment_messages.sql','utf8')
+const assignmentCode=assignmentSql.replace(/--[^\n]*/g,'')
+const assignmentCore=assignmentCode.slice(0,assignmentCode.indexOf('revoke all on function'))
+const assignmentWrappers=assignmentCode.slice(assignmentCode.indexOf('create or replace function'))
+
+test('assignment wrappers keep signatures and enter the same private core before any copy or mutation',()=>{
+  assert.deepEqual([...assignmentCode.matchAll(/create (?:or replace )?function public\.(\w+)/g)].map(match=>match[1]),[
+    'assign_prepared_character_internal','assign_prepared_character','assign_prepared_character_keep_copy',
+  ])
+  assert.match(assignmentWrappers,/function public.assign_prepared_character\(\s+p_character_id uuid,\s+p_user_id uuid\s*\)\s*returns void/)
+  assert.match(assignmentWrappers,/function public.assign_prepared_character_keep_copy\(\s+p_character_id uuid,\s+p_user_id uuid\s*\)\s*returns uuid/)
+  assert.match(assignmentWrappers,/perform public.assign_prepared_character_internal\(p_character_id, p_user_id, false\)/)
+  assert.match(assignmentWrappers,/return public.assign_prepared_character_internal\(p_character_id, p_user_id, true\)/)
+  assert.doesNotMatch(assignmentWrappers,/copy_character|\b(?:insert|update|for share)\b/i)
+  assert.equal((assignmentCode.match(/security definer\s+set search_path = ''/g)||[]).length,3)
+  assert.match(assignmentCode,/revoke all on function public.assign_prepared_character_internal\(uuid, uuid, boolean\)\s+from public, anon, authenticated/)
+  assert.doesNotMatch(assignmentCode,/\b(?:grant|alter|policy|publication|trigger|deletion_pending_at|exception when)\b/i)
+})
+test('assignment lock order starts with deduplicated ordered profiles and the existing round sequence namespace',()=>{
+  const steps=[
+    'caller_user_id uuid := auth.uid()',
+    'select round_id into initial_round_id',
+    'perform id from public.profiles',
+    'for key share',
+    "'round-message-sequence:' || initial_round_id::text, 0",
+    'select * into current_character from public.characters',
+    'select * into current_round from public.rounds',
+    'select role into caller_membership_role from public.round_memberships',
+    'perform 1 from public.round_memberships',
+    'copied_character_id := public.copy_character',
+    'update public.characters',
+    'coalesce(max(round_seq), 0) + 1',
+    'insert into public.round_messages',
+  ].map(text=>assignmentCore.indexOf(text))
+  assert.ok(steps.every((position,index)=>position>=0 && (index===0 || position>steps[index-1])))
+  assert.match(assignmentCore,/where id in \(caller_user_id, p_user_id\)\s+order by id\s+for key share/)
+  assert.match(assignmentCore,/get diagnostics locked_profile_count = row_count/)
+  assert.match(assignmentCore,/locked_profile_count <> \(case when caller_user_id = p_user_id then 1 else 2 end\)/)
+  assert.equal((assignmentCore.match(/pg_advisory_xact_lock/g)||[]).length,1)
+  assert.match(sender,/'round-message-sequence:' \|\| p_round_id::text, 0/)
+  assert.doesNotMatch(assignmentCore.slice(0,assignmentCore.indexOf('pg_advisory_xact_lock')),/for update|for share/)
+})
+test('assignment revalidates locked character round and role; self-assignment takes membership U immediately',()=>{
+  assert.match(assignmentCore,/select \* into current_character from public.characters\s+where id = p_character_id\s+for update/)
+  assert.match(assignmentCore,/current_character.deleted_at is not null\s+or current_character.round_id is distinct from initial_round_id/)
+  assert.match(assignmentCore,/if current_character.owner_user_id is not null then\s+raise exception 'Character already has an owner'/)
+  assert.match(assignmentCore,/select \* into current_round from public.rounds\s+where id = initial_round_id\s+for share/)
+  assert.match(assignmentCore,/current_round.locked_at is not null/)
+  assert.match(assignmentCore,/current_round.status = 'archived'/)
+  assert.doesNotMatch(assignmentCore,/status = 'paused'|is_round_game_master/)
+  assert.match(assignmentCore,/if caller_user_id = p_user_id then\s+select role into caller_membership_role from public.round_memberships\s+where round_id = initial_round_id and user_id = caller_user_id\s+for update;\s+else\s+select role into caller_membership_role from public.round_memberships\s+where round_id = initial_round_id and user_id = caller_user_id\s+for share;\s+end if;\s+if not found or caller_membership_role is distinct from 'game_master'/)
+  assert.match(assignmentCore,/if caller_user_id <> p_user_id then\s+perform 1 from public.round_memberships\s+where round_id = initial_round_id and user_id = p_user_id\s+for update;\s+if not found then/)
+})
+test('assignment message uses only the updated original and server values after normal trigger execution',()=>{
+  assert.match(assignmentCore,/update public.characters\s+set owner_user_id = p_user_id\s+where id = p_character_id\s+returning \* into current_character/)
+  assert.match(assignmentCore,/coalesce\(max\(round_seq\), 0\) \+ 1 into next_round_seq\s+from public.round_messages where round_id = initial_round_id/)
+  assert.match(assignmentCore,/initial_round_id, next_round_seq, null, current_character.id, 'system',\s+'System', 'system_message', current_character.owner_user_id,\s+'Dir wurde der Charakter ' \|\| current_character.name \|\| ' zugewiesen.',\s+pg_catalog.gen_random_uuid\(\)/)
+  assert.doesNotMatch(assignmentCore,/p_body|p_client_request_id|nextval|setval|on conflict|exception when|\bcommit\b/i)
+  assert.equal((assignmentCore.match(/insert into public.round_messages/g)||[]).length,1)
+})
+test('assignment SQL tests cover real RPCs, RLS, copy, self-assignment and late-insert rollback without a parallel harness',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const block=sql.slice(sql.indexOf('-- Phase 3.3a2-1:'))
+  for(const label of [
+    'assignment internal helper has no PUBLIC execute','assignment internal helper denies anon and authenticated',
+    'assignment sets original owner','assignment trigger selects the sole owned character',
+    'assigning GM cannot read recipient message','other current member cannot read assignment message',
+    'recipient reads exactly one assignment message','assignment message has server identity snapshot request and sequence',
+    'keep_copy returns a new prepared copy','keep_copy assigns original',
+    'assignment preserves an existing valid active character','keep_copy emits exactly one message for original',
+    'GM self-assignment sees only own private message','assignment retries create neither extra messages nor extra copies',
+    'message failure rolls back owner active selection copy and message',
+    'rejected assignments leave characters copies and messages unchanged',
+    'assignment succeeds in paused round after rollback','real assignment snapshot survives rename removal and harddelete',
+  ]) assert.ok(block.includes(label),label)
+  assert.match(block,/9007199254740991/)
+  assert.match(block,/assign_prepared_character_keep_copy[^\n]+\$q\$,'23514'/)
+  assert.match(block,/Phase 3.3a2-2 remains a SEPARATE step/)
+  assert.doesNotMatch(block,/delete from (?:auth\.users|public\.profiles)|dblink/i)
+})

@@ -118,7 +118,9 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
         </div>}
         {!chat.isLoading && !chat.error && chat.messages.length === 0 && <p>Noch keine Nachrichten. Hier beginnt eure gemeinsame Chronik.</p>}
         <ol className="play-chat-messages" aria-label="Chatnachrichten">
-          {chat.messages.map(message => <li className="play-chat-message" data-speaker={message.speaker_kind} key={message.id}>
+          {chat.messages.map(message => <li
+            className={message.kind === 'system_message' ? 'play-chat-message play-chat-message-system' : 'play-chat-message'}
+            data-kind={message.kind} data-speaker={message.speaker_kind} key={message.id}>
             <div className="play-chat-message-meta">
               <strong>{message.speaker_name_snapshot}</strong>
               <time dateTime={message.created_at}>{timeFormat.format(new Date(message.created_at))}</time>

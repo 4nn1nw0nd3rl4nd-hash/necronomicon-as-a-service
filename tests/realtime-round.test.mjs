@@ -1682,7 +1682,7 @@ test('play route remains inside RequireAuth and AppLayout, without an admin acce
 
 // Phase 3.1: real hooks against controlled authorized query responses.
 const chatMessage=(seq,overrides={})=>({id:`message-${seq}`,round_id:round,round_seq:seq,author_user_id:user,
-  character_id:other,speaker_kind:'character',speaker_name_snapshot:'Astrid',kind:'character_message',
+  recipient_user_id:null,character_id:other,speaker_kind:'character',speaker_name_snapshot:'Astrid',kind:'character_message',
   body:`Nachricht ${seq}`,client_request_id:`request-${seq}`,created_at:'2026-09-14T10:00:00Z',...overrides})
 const chatBatch=(start,end)=>Array.from({length:end-start+1},(_,i)=>chatMessage(start+i))
 function chatSetup() {
@@ -1708,6 +1708,7 @@ test('chat initial load requests latest 50, orders chronologically, and paginate
   assert.equal(b.requests[0].rpc,'can_read_round_messages')
   await authorize(b.requests[0])
   assert.equal(b.requests[1].table,'round_messages')
+  assert.match(b.requests[1].fields,/(?:^|,)recipient_user_id(?:,|$)/)
   assert.equal(b.requests[1].round_id,round)
   assert.equal(b.requests[1].limit,50)
   assert.deepEqual(b.requests[1].order,{key:'round_seq',ascending:false})
@@ -1721,6 +1722,48 @@ test('chat initial load requests latest 50, orders chronologically, and paginate
   h.render().reload();await authorize(b.requests[4])
   assert.deepEqual(b.requests[5].gt,{key:'round_seq',value:100},'older pages must not move the delta cursor')
   b.requests[5].resolve({data:[],error:null});await settle();h.cleanup()
+})
+
+test('chat query preserves visible system-message fields without a client-side recipient filter',async()=>{
+  const f=chatSetup(),{b,h}=f
+  const system=chatMessage(1,{author_user_id:null,recipient_user_id:user,character_id:other,
+    speaker_kind:'system',speaker_name_snapshot:'System',kind:'system_message',
+    body:'Dir wurde der Charakter Elin Rosenqvist zugewiesen.'})
+  await initialChat(f,[system])
+  assert.deepEqual({...h.render().messages[0]},system)
+  const query=b.requests[1]
+  assert.match(query.fields,/(?:^|,)kind(?:,|$)/)
+  assert.match(query.fields,/(?:^|,)speaker_kind(?:,|$)/)
+  assert.match(query.fields,/(?:^|,)recipient_user_id(?:,|$)/)
+  assert.equal(query.recipient_user_id,undefined)
+  h.cleanup()
+})
+
+test('chat renders character and GM messages unchanged and system messages as chronological info blocks',()=>{
+  const h=harness({}, {document:{body:{style:{overflow:''}}}})
+  const Panel=h.load('src/components/PlayChatPanel.tsx').default
+  const messages=[
+    chatMessage(1),
+    chatMessage(2,{author_user_id:null,recipient_user_id:user,speaker_kind:'system',
+      speaker_name_snapshot:'System',kind:'system_message',body:'Dir wurde der Charakter Elin Rosenqvist zugewiesen.'}),
+    chatMessage(3,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),
+  ]
+  const tree=h.render(Panel,[{isDesktop:true,isOpen:true,onClose(){},chat:{...emptyChat(),messages},
+    composer:emptyComposer(),disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}])
+  const rendered=nodes(tree).filter(node=>node.type==='li'&&node.props.className?.includes('play-chat-message'))
+  assert.equal(rendered.length,3)
+  assert.deepEqual(rendered.map(node=>node.key),messages.map(message=>message.id))
+  assert.equal(rendered[0].props.className,'play-chat-message')
+  assert.equal(rendered[0].props['data-kind'],'character_message')
+  assert.equal(rendered[2].props.className,'play-chat-message')
+  assert.equal(rendered[2].props['data-speaker'],'game_master')
+  assert.equal(rendered[1].props.className,'play-chat-message play-chat-message-system')
+  assert.equal(rendered[1].props['data-kind'],'system_message')
+  assert.equal(rendered[1].props['data-speaker'],'system')
+  assert.match(textOf(rendered[1]),/^System.*Dir wurde der Charakter Elin Rosenqvist zugewiesen\./)
+  assert.doesNotMatch(textOf(rendered[1]),/null|undefined/)
+  assert.ok(nodes(rendered[1]).some(node=>node.type==='time'))
+  h.cleanup()
 })
 
 test('chat uses exactly one INSERT-only channel and closes subscribe/initial race with a trailing authorized delta',async()=>{
@@ -1908,12 +1951,13 @@ test('composer gating covers missing/invalid active character, GM, archive, lock
   f.h.cleanup()
 })
 
-test('collapsed/mobile chat shares messages and draft state, retains tabs and exposes an unread indicator',()=>{
+test('collapsed/mobile chat shares messages and draft state, retains tabs and counts a visible system message as unread',()=>{
   const f=shellSetup({chat:{...emptyChat(),messages:[chatMessage(50)],initialLatestSeq:50}})
   const header=tree=>nodes(tree).find(n=>n.type==='PlayModeHeader').props
   const panel=tree=>nodes(tree).find(n=>n.type==='PlayChatPanel').props
   let tree=f.render();header(tree).onTabChange('notes');header(tree).onChatToggle()
-  const chat={...emptyChat(),messages:[chatMessage(50),chatMessage(51)],initialLatestSeq:50}
+  const chat={...emptyChat(),messages:[chatMessage(50),chatMessage(51,{author_user_id:null,recipient_user_id:user,
+    speaker_kind:'system',speaker_name_snapshot:'System',kind:'system_message'})],initialLatestSeq:50}
   tree=f.render({chat});assert.equal(header(tree).unreadCount,1);assert.equal(panel(tree).isOpen,false)
   assert.equal(panel(tree).chat,chat);assert.equal(header(tree).activeTab,'notes')
   header(tree).onChatToggle();tree=f.render();assert.equal(panel(tree).chat,chat)
