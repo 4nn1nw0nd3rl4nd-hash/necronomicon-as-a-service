@@ -90,6 +90,8 @@ function backend() {
       const request={rpc:name,args}
       const promise=new Promise((resolve,reject)=>requests.push(Object.assign(request,{resolve,reject})))
       promise.abortSignal=signal=>{request.signal=signal;return promise}
+      promise.select=fields=>{request.fields=fields;return promise}
+      promise.maybeSingle=()=>{request.single=true;return promise}
       promise.single=()=>{request.single=true;return promise}
       promise.overrideTypes=()=>promise
       return promise
@@ -587,6 +589,39 @@ for (const [name, action, input] of [
     clock.advance(10000)
   })
 }
+
+test('round edit uses one normalized RPC and preserves result, in-flight and error semantics',async()=>{
+  const b=backend(),clock=browserClock(),h=harness(b.api,clock,{
+    '../auth/useAuth':{useAuth:()=>({session:{},user:{id:user}})},
+  })
+  const hook=h.load('src/hooks/useUpdateRound.ts').useUpdateRound
+  h.render(hook,[])
+  const input={name:' Runde ',system:' ',description:' Beschreibung ',appointment:' Termin ',status:'paused'}
+  const pending=h.render().updateRound(round,input)
+  assert.equal(h.render().isSubmitting,true)
+  assert.equal(await h.render().updateRound(round,input),null)
+  assert.equal(b.requests.length,1)
+  assert.equal(b.requests[0].rpc,'update_round')
+  assert.deepEqual({...b.requests[0].args},{p_round_id:round,p_name:'Runde',p_system:null,
+    p_description:'Beschreibung',p_appointment:'Termin',p_status:'paused'})
+  assert.ok(b.requests[0].fields.includes('orphaned_at'))
+  assert.equal(b.requests[0].single,true)
+  const saved={...roundData().round,status:'paused',orphaned_at:null}
+  b.requests[0].resolve({data:saved,error:null})
+  assert.equal(await pending,saved)
+  assert.equal(h.render().isSuccess,true)
+  assert.equal(h.render().isSubmitting,false)
+  const failed=h.render().updateRound(round,{...input,status:'archived'})
+  assert.equal(b.requests[1].args.p_status,'archived')
+  b.requests[1].resolve({data:null,error:{message:'Round is locked'}})
+  assert.equal(await failed,null)
+  assert.ok(h.render().error)
+  assert.equal(h.render().isSuccess,false)
+  assert.equal(h.render().isSubmitting,false)
+  assert.equal(b.requests.length,2)
+  assert.equal(b.channels.length,0)
+  h.cleanup()
+})
 
 test('success timer cleanup prevents state writes after unmount; stale expiry cannot clear a newer error',()=>{
   const clock=browserClock(), h=harness({},clock)

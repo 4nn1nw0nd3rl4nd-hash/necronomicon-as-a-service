@@ -331,3 +331,283 @@ test('transfer SQL tests cover rollback, stale authority, snapshots, statuses an
   assert.match(sql,/character_id=pg_temp.chat_id\('assignment_failure'\) and round_seq=5/)
   assert.doesNotMatch(block,/delete from (?:auth\.users|public\.profiles)|dblink/i)
 })
+
+const editMigration=readFileSync('supabase/migrations/20260916120000_add_controlled_round_edit.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+const editRpc=editMigration.slice(0,editMigration.indexOf('$$;')+3)
+test('round edit has one authenticated-only definer RPC with exactly the existing form fields',()=>{
+  assert.match(editRpc,/^create function public\.update_round\( p_round_id uuid, p_name text, p_system text, p_description text, p_appointment text, p_status text \) returns public\.rounds language plpgsql security definer set search_path = '' as \$\$/)
+  assert.match(editRpc,/caller_user_id uuid := auth\.uid\(\);/)
+  assert.match(editRpc,/if caller_user_id is null then raise exception 'Not authenticated'; end if;/)
+  assert.match(editRpc,/if p_round_id is null or p_status is null or p_status not in \('active', 'paused', 'archived'\) then raise exception 'Invalid round parameters'; end if;/)
+  assert.match(editRpc,/if p_name is null or pg_catalog\.btrim\(p_name\) = '' then raise exception 'Round name is required'; end if;/)
+  assert.match(editMigration,/revoke all on function public\.update_round\(uuid, text, text, text, text, text\) from public, anon; grant execute on function public\.update_round\(uuid, text, text, text, text, text\) to authenticated;/)
+  assert.equal((editMigration.match(/create function/g)||[]).length,1)
+  assert.doesNotMatch(editRpc,/is_admin|is_superadmin|is_round_game_master|exception when|set_round_archived|prepare_user_deletion/)
+})
+test('round edit takes profile S then shared sequence then round U then membership S with locked authorization',()=>{
+  const steps=[
+    'perform id from public.profiles',
+    'perform pg_catalog.pg_advisory_xact_lock',
+    'select * into current_round from public.rounds',
+    'if current_round.locked_at is not null',
+    'select role into caller_membership_role from public.round_memberships',
+    "if not found or caller_membership_role is distinct from 'game_master'",
+    "if current_round.status = 'active' and p_status = 'paused'",
+    'update public.rounds',
+    'if message_body is not null then',
+    'select coalesce(max(round_seq), 0) + 1',
+    'insert into public.round_messages',
+    'return updated_round;',
+  ].map(text=>editRpc.indexOf(text))
+  assert.ok(steps.every((position,index)=>position>=0 && (index===0 || position>steps[index-1])))
+  assert.match(editRpc,/perform id from public\.profiles where id = caller_user_id for share; if not found then raise exception 'Not authorized'; end if;/)
+  assert.match(editRpc,/pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\( 'round-message-sequence:' \|\| p_round_id::text, 0\)\);/)
+  assert.match(editRpc,/select \* into current_round from public\.rounds where id = p_round_id for update; if not found then raise exception 'Round does not exist'; end if; if current_round.locked_at is not null then raise exception 'Round is locked'; end if;/)
+  assert.match(editRpc,/select role into caller_membership_role from public\.round_memberships where round_id = p_round_id and user_id = caller_user_id for share; if not found or caller_membership_role is distinct from 'game_master' then raise exception 'Not authorized'; end if;/)
+  assert.deepEqual(editRpc.match(/for (?:key share|share|update);/g),['for share;','for update;','for share;'])
+  assert.equal((editRpc.match(/pg_advisory_xact_lock/g)||[]).length,1)
+})
+test('only active-paused and paused-active set an exact server text; insert is conditional after atomic edit',()=>{
+  assert.match(editRpc,/message_body text;/)
+  assert.match(editRpc,/if current_round.status = 'active' and p_status = 'paused' then message_body := 'Die Runde wurde pausiert\.'; elsif current_round.status = 'paused' and p_status = 'active' then message_body := 'Die Runde wurde fortgesetzt\.'; end if;/)
+  assert.equal((editRpc.match(/message_body :=/g)||[]).length,2)
+  assert.match(editRpc,/update public\.rounds set name = pg_catalog\.btrim\(p_name\), system = nullif\(pg_catalog\.btrim\(p_system\), ''\), description = nullif\(pg_catalog\.btrim\(p_description\), ''\), appointment = nullif\(pg_catalog\.btrim\(p_appointment\), ''\), status = p_status where id = p_round_id returning \* into updated_round; if not found then raise exception 'Round update failed'; end if;/)
+  assert.match(editRpc,/if message_body is not null then select coalesce\(max\(round_seq\), 0\) \+ 1 into next_round_seq from public\.round_messages where round_id = p_round_id; insert into public\.round_messages \( round_id, round_seq, author_user_id, character_id, speaker_kind, speaker_name_snapshot, kind, recipient_user_id, body, client_request_id \) values \( p_round_id, next_round_seq, null, null, 'system', 'System', 'system_message', null, message_body, pg_catalog\.gen_random_uuid\(\) \); end if; return updated_round; end; \$\$;$/)
+  assert.equal((editRpc.match(/insert into/g)||[]).length,1)
+  assert.equal((editRpc.match(/return updated_round/g)||[]).length,1)
+  assert.doesNotMatch(editRpc,/archiviert\.|username|p_body|p_client_request_id|p_recipient|on conflict|\bcommit\b/i)
+})
+test('direct status update is revoked at both table and column level; metadata grants keep existing RLS',()=>{
+  assert.equal(editMigration.slice(editMigration.indexOf('revoke update')),`revoke update on table public.rounds from public, anon, authenticated;
+    revoke update (status) on table public.rounds from public, anon, authenticated;
+    grant update (name, system, description, appointment) on table public.rounds to authenticated;`.replace(/\s+/g,' '))
+  assert.doesNotMatch(editMigration,/\b(?:policy|trigger|publication|alter table|disable row level|grant all)\b/i)
+})
+test('round edit frontend calls the RPC with all form fields and preserves one-row result and error handling',()=>{
+  const hook=readFileSync('src/hooks/useUpdateRound.ts','utf8')
+  assert.match(hook,/\.rpc\('update_round', \{\s+p_round_id: roundId,\s+p_name: normalizedName,\s+p_system: normalizedSystem,\s+p_description: normalizedDescription,\s+p_appointment: normalizedAppointment,\s+p_status: input.status,\s+\}\)/)
+  assert.doesNotMatch(hook,/\.from\('rounds'\)|\.update\(|round_messages|\.insert\(/)
+  assert.match(hook,/\.maybeSingle\(\)\s+\.overrideTypes<RoundDetails, \{ merge: false \}>\(\)/)
+  assert.match(hook,/if \(error \|\| !data\) \{\s+setState\(\{ \.\.\.initialState, error: unavailableError \}\)\s+return null/)
+  assert.match(hook,/return data/)
+})
+test('round edit SQL fixtures cover real transitions, hidden history, authorization, grants and late failure',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const block=sql.slice(sql.indexOf('-- Phase 3.3c2-1:'))
+  for(const label of [
+    'pause returns updated metadata and status in one row',
+    'pause shares sequence with character private assignment and public transfer messages',
+    'paused to paused creates no additional visible message','resume creates exactly one public system message',
+    'active to active creates no additional visible message','metadata-only RPC edit changes all fields without a message',
+    'direct status bypass denied while legitimate GM metadata update still works',
+    'player former GM admin and superadmin cannot edit without current GM membership',
+    'locked edit preserves complete round row and messages',
+    'late edit message failure rolls back status all metadata and message',
+    'edit failure and no-ops preserve hidden private history too',
+    'existing form archive transitions emit three archive events while unarchive stays message-free',
+  ]) assert.ok(block.includes(label),label)
+  assert.match(block,/update public.rounds set status='paused'[^\n]+\$q\$,'42501'/)
+  assert.match(block,/update_round[^\n]+\$q\$,'23514'/)
+  assert.match(block,/r is not distinct from before_round/)
+  assert.match(block,/not has_column_privilege\('authenticated','public.rounds','status','UPDATE'\)/)
+})
+
+const manualArchiveMigration=readFileSync('supabase/migrations/20260916130000_emit_manual_round_archive_messages.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+const currentEditRpc=manualArchiveMigration.slice(0,manualArchiveMigration.indexOf('$$;')+3)
+const archiveRpc=manualArchiveMigration.slice(manualArchiveMigration.indexOf('create or replace function public.set_round_archived'))
+test('manual archive migration replaces only two existing signatures without touching grants RLS or automatic archival',()=>{
+  assert.deepEqual([...manualArchiveMigration.matchAll(/create or replace function public\.(\w+)\(/g)].map(match=>match[1]),
+    ['update_round','set_round_archived'])
+  assert.equal((manualArchiveMigration.match(/\$\$/g)||[]).length,4)
+  assert.doesNotMatch(manualArchiveMigration,/\b(?:drop|grant|revoke|alter|trigger|policy|publication|prepare_user_deletion|recover_orphaned_round|send_round_message|execute)\b/i)
+  assert.match(archiveRpc,/^create or replace function public\.set_round_archived\( p_round_id uuid, p_archived boolean \) returns void language plpgsql security definer set search_path = '' as \$\$/)
+  assert.equal((manualArchiveMigration.match(/security definer set search_path = ''/g)||[]).length,2)
+})
+test('current round edit differs from Phase 3.3c2-1 only by the explicit active-or-paused archive branch',()=>{
+  const expected=editRpc.replace('create function','create or replace function')
+    .replace("message_body := 'Die Runde wurde fortgesetzt.'; end if;",
+      "message_body := 'Die Runde wurde fortgesetzt.'; elsif current_round.status in ('active', 'paused') and p_status = 'archived' then message_body := 'Die Runde wurde archiviert.'; end if;")
+  assert.equal(currentEditRpc,expected)
+  // Full-function equality preserves the already tested locks, metadata update,
+  // validation, conditional insert, server identity and one-row return contract.
+})
+test('manual archive locks profile S before shared sequence and round U, then optional membership S',()=>{
+  const steps=[
+    "select (role = 'admin' or is_superadmin) into caller_is_admin",
+    'perform pg_catalog.pg_advisory_xact_lock',
+    'select status, orphaned_at, locked_at',
+    'if not caller_is_admin then',
+    'select role into caller_membership_role from public.round_memberships',
+    'if current_locked_at is not null then',
+    'if p_archived then',
+    "update public.rounds set status = 'archived'",
+    'select coalesce(max(round_seq), 0) + 1',
+    'insert into public.round_messages',
+  ].map(text=>archiveRpc.indexOf(text))
+  assert.ok(steps.every((position,index)=>position>=0 && (index===0 || position>steps[index-1])))
+  assert.match(archiveRpc,/select \(role = 'admin' or is_superadmin\) into caller_is_admin from public\.profiles where id = caller_user_id for share; if not found then raise exception 'Not authorized'; end if; perform pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\( 'round-message-sequence:' \|\| p_round_id::text, 0\)\);/)
+  assert.match(archiveRpc,/select status, orphaned_at, locked_at into current_status, current_orphaned_at, current_locked_at from public\.rounds where id = p_round_id for update; if not found then raise exception 'Round does not exist'; end if;/)
+  assert.match(archiveRpc,/if not caller_is_admin then select role into caller_membership_role from public\.round_memberships where round_id = p_round_id and user_id = caller_user_id for share; if not found or caller_membership_role is distinct from 'game_master' then raise exception 'Not authorized'; end if; end if; if current_locked_at is not null then raise exception 'Round is locked'; end if;/)
+  assert.deepEqual(archiveRpc.match(/for (?:key share|share|update);/g),['for share;','for update;','for share;'])
+  assert.equal((archiveRpc.match(/pg_advisory_xact_lock/g)||[]).length,1)
+  assert.equal((archiveRpc.match(/from public\.profiles/g)||[]).length,1)
+  assert.doesNotMatch(archiveRpc.slice(steps[2]),/pg_advisory_xact_lock|from public\.profiles/)
+  assert.match(archiveRpc,/caller_user_id uuid := auth\.uid\(\);/)
+  assert.match(archiveRpc,/if caller_user_id is null then raise exception 'Not authenticated'; end if; if p_archived is null then raise exception 'Archived state is required'; end if;/)
+})
+test('archive insert is exclusively in the non-archived true branch; unarchive retains errors and paused target',()=>{
+  assert.match(archiveRpc,/if p_archived then if current_status = 'archived' then return; end if; update public\.rounds set status = 'archived' where id = p_round_id; select coalesce\(max\(round_seq\), 0\) \+ 1 into next_round_seq from public\.round_messages where round_id = p_round_id; insert into public\.round_messages \( round_id, round_seq, author_user_id, character_id, speaker_kind, speaker_name_snapshot, kind, recipient_user_id, body, client_request_id \) values \( p_round_id, next_round_seq, null, null, 'system', 'System', 'system_message', null, 'Die Runde wurde archiviert\.', pg_catalog\.gen_random_uuid\(\) \); return; end if;/)
+  assert.match(archiveRpc,/if current_orphaned_at is not null then raise exception 'Round must be recovered before it can leave the archive'; end if; if current_status <> 'archived' then raise exception 'Round is not archived'; end if; update public\.rounds set status = 'paused' where id = p_round_id; end; \$\$;$/)
+  assert.equal((archiveRpc.match(/insert into public\.round_messages/g)||[]).length,1)
+  assert.equal((archiveRpc.match(/Die Runde wurde archiviert\./g)||[]).length,1)
+  assert.doesNotMatch(manualArchiveMigration,/exception when|\bcommit\b|p_body|p_client_request_id|username|wieder geöffnet|reaktiviert|entarchiviert|set orphaned_at/i)
+})
+test('manual archive SQL tests exercise both paths, both starting states, authorization, rollback and read-only history',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const block=sql.slice(sql.indexOf('-- Phase 3.3c2-2:'),sql.indexOf('-- Phase 3.3c2-3:'))
+  assert.match(block,/foreach archive_path in array array\['update_round','set_round_archived'\] loop\s+foreach starting_status in array array\['active','paused'\] loop/)
+  assert.match(block,/archive_message\.author_user_id is null\s+and archive_message\.recipient_user_id is null and archive_message\.character_id is null/)
+  assert.match(block,/expected_seq bigint := 6;/)
+  assert.match(block,/max\(round_seq\)=5 and count\(\*\)=4/)
+  assert.match(block,/update_round[^\n]+\$q\$,'23514'/)
+  assert.match(block,/set_round_archived[^\n]+\$q\$,'23514'/)
+  assert.match(block,/foreach administrator in array array\['admin','super'\]/)
+  assert.match(block,/foreach caller in array array\['second','admin','super'\]/)
+  assert.match(block,/r is not distinct from before_round/)
+  assert.match(block,/'42501','CHAT_ROUND_ARCHIVED'/)
+  for(const label of [
+    'same and opposite archive paths never duplicate the archive event',
+    'ordinary member reads all archive events in archived history',
+    'archive RPC unarchives to paused without a message',
+    'archive authority never grants chat access',
+    'player and former GM archive attempts change neither round nor messages',
+    'moderation lock blocks both archive paths including admin and Bewahrer',
+    'late archive insert failure rolls back edit status and every metadata field',
+    'late archive insert failure rolls back archive-only RPC completely',
+    'archive no-ops and failed writes preserve private history too',
+    'orphan archive no-op and blocked unarchive preserve state without a message',
+    'recovery clears orphan marker but neither unarchives nor emits a message',
+    'recovered round unarchives silently to paused',
+  ]) assert.ok(block.includes(label),label)
+  assert.doesNotMatch(block.replace(/--[^\n]*/g,''),/delete from (?:auth\.users|public\.profiles)|public\.prepare_user_deletion\(/i)
+})
+
+const automaticArchiveRpc=readFileSync('supabase/migrations/20260918100000_emit_automatic_round_archive_messages.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+const previousDeletionSql=readFileSync('supabase/migrations/20260903140000_harden_admin_role_management.sql','utf8')
+  .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+const previousDeletionRpc=previousDeletionSql.slice(previousDeletionSql.indexOf('create or replace function public.prepare_user_deletion'))
+  .split('$$;')[0]+'$$;'
+
+test('automatic archive replaces only prepare_user_deletion and preserves its complete authorization and early profile locks',()=>{
+  assert.deepEqual([...automaticArchiveRpc.matchAll(/create or replace function public\.(\w+)\(/g)].map(match=>match[1]),['prepare_user_deletion'])
+  assert.equal((automaticArchiveRpc.match(/\$\$/g)||[]).length,2)
+  assert.match(automaticArchiveRpc,/^create or replace function public\.prepare_user_deletion\( p_user_id uuid \) returns void language plpgsql security definer set search_path = '' as \$\$/)
+  const originalPrefix=previousDeletionRpc.slice(previousDeletionRpc.indexOf('begin '),previousDeletionRpc.indexOf('for gm_membership in'))
+  const currentPrefix=automaticArchiveRpc.slice(automaticArchiveRpc.indexOf('begin '),automaticArchiveRpc.indexOf('select coalesce(pg_catalog.array_agg'))
+  assert.equal(currentPrefix,originalPrefix)
+  assert.doesNotMatch(automaticArchiveRpc,/\b(?:drop|grant|revoke|alter|trigger|policy|publication|execute|update_round|set_round_archived|recover_orphaned_round|send_round_message)\b/i)
+})
+
+test('automatic archive acquires ALL UUID-sorted GM sequence locks before any round membership or character locks',()=>{
+  const discovery=automaticArchiveRpc.slice(automaticArchiveRpc.indexOf('select coalesce(pg_catalog.array_agg'),automaticArchiveRpc.indexOf('for gm_membership in'))
+  assert.equal(discovery,
+    "select coalesce(pg_catalog.array_agg(round_id order by round_id), array[]::uuid[]) into candidate_round_ids from public.round_memberships where user_id = p_user_id and role = 'game_master'; "+
+    "foreach candidate_round_id in array candidate_round_ids loop perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended( 'round-message-sequence:' || candidate_round_id::text, 0)); end loop; ")
+  const positions=[
+    'from public.profiles where id = caller_user_id for share;',
+    'from public.profiles where id = p_user_id for update;',
+    'update public.profiles',
+    'select coalesce(pg_catalog.array_agg',
+    'perform pg_catalog.pg_advisory_xact_lock',
+    'for gm_membership in',
+    'for update of round_to_lock, membership',
+    'update public.characters',
+    'foreach candidate_round_id in array gm_round_ids',
+    'update public.rounds',
+    'insert into public.round_messages',
+    'delete from public.round_memberships',
+  ].map(step=>automaticArchiveRpc.indexOf(step))
+  assert.ok(positions.every((position,index)=>position>=0 && (!index || position>positions[index-1])))
+  assert.equal((automaticArchiveRpc.match(/pg_advisory_xact_lock/g)||[]).length,1)
+  assert.doesNotMatch(automaticArchiveRpc.slice(positions[5]),/pg_advisory_xact_lock|from public\.profiles/)
+  assert.deepEqual(automaticArchiveRpc.match(/for (?:share|update(?: of round_to_lock, membership)?)[; ]/g),
+    ['for share;','for update;','for update of round_to_lock, membership '])
+})
+
+test('automatic archive revalidates only locked candidate GM rounds and classifies archived status under row locks',()=>{
+  const lockedPass=automaticArchiveRpc.slice(automaticArchiveRpc.indexOf('for gm_membership in'),automaticArchiveRpc.indexOf('update public.characters'))
+  assert.equal(lockedPass,
+    "for gm_membership in select membership.id, membership.round_id, round_to_lock.status, round_to_lock.orphaned_at "+
+    "from public.round_memberships as membership join public.rounds as round_to_lock on round_to_lock.id = membership.round_id "+
+    "where membership.user_id = p_user_id and membership.role = 'game_master' and membership.round_id = any(candidate_round_ids) "+
+    "order by membership.round_id for update of round_to_lock, membership loop "+
+    "gm_round_ids := pg_catalog.array_append( gm_round_ids, gm_membership.round_id ); "+
+    "if gm_membership.status <> 'archived' then newly_archived_round_ids := pg_catalog.array_append( newly_archived_round_ids, gm_membership.round_id ); end if; end loop; ")
+  assert.doesNotMatch(automaticArchiveRpc,/locked_at|Round is locked/)
+})
+
+test('automatic archive preserves character cleanup and emits one atomic public event only for newly archived rounds',()=>{
+  const tail=automaticArchiveRpc.slice(automaticArchiveRpc.indexOf('update public.characters'))
+  assert.equal(tail,
+    "update public.characters set round_id = null where owner_user_id = p_user_id and round_id is not null; "+
+    "foreach candidate_round_id in array gm_round_ids loop update public.rounds set status = 'archived', orphaned_at = pg_catalog.now() where id = candidate_round_id; "+
+    "if candidate_round_id = any(newly_archived_round_ids) then "+
+    "select coalesce(max(round_seq), 0) + 1 into next_round_seq from public.round_messages where round_id = candidate_round_id; "+
+    "insert into public.round_messages ( round_id, round_seq, author_user_id, character_id, speaker_kind, speaker_name_snapshot, kind, recipient_user_id, body, client_request_id ) "+
+    "values ( candidate_round_id, next_round_seq, null, null, 'system', 'System', 'system_message', null, 'Die Runde wurde archiviert.', pg_catalog.gen_random_uuid() ); "+
+    "end if; end loop; delete from public.round_memberships where user_id = p_user_id; end; $$;")
+  assert.doesNotMatch(automaticArchiveRpc,/exception when|\b(?:commit|rollback)\b|delete from (?:auth\.users|public\.profiles)|p_body|username/i)
+})
+
+test('automatic archive SQL coverage includes locked and multiple rounds, authorization and full late-round rollback snapshots',()=>{
+  const sql=readFileSync('supabase/tests/round_messages_security.sql','utf8')
+  const block=sql.slice(sql.indexOf('-- Phase 3.3c2-3:'),sql.indexOf('-- Phase 3.3b3:'))
+  for(const fixture of [
+    "('active','active','active',false,true,2)",
+    "('paused','paused','paused',false,true,2)",
+    "('archived','archived','archived',false,true,2)",
+    "('locked_active','locked_active','active',true,true,2)",
+    "('locked_paused','locked_paused','paused',true,true,2)",
+    "('player_only','player_only','active',false,false,2)",
+    "('multi_active','multi','active',false,true,10)",
+    "('multi_paused','multi','paused',false,true,20)",
+    "('multi_archived','multi','archived',false,true,30)",
+    "('super_user','user','super')","('admin_target','admin','super')",
+  ]) assert.ok(block.includes(fixture),fixture)
+  assert.match(block,/row_number\(\) over\(order by id\)/)
+  assert.match(block,/case when position=1 then 2 else 9007199254740991 end/)
+  assert.match(block,/prepare_user_deletion\(\(select id from deletion_targets where key='rollback'\)\)\$q\$,'23514'/)
+  assert.match(block,/pg_temp\.deletion_snapshot\('rollback'\)=\(select data from deletion_snapshots where key='rollback'\)/)
+  for(const table of ['profiles','rounds','round_memberships','characters','round_messages']) {
+    assert.match(block,new RegExp('jsonb_agg\\(to_jsonb\\(\\w+\\) order by \\w+\\.id\\) from public\\.'+table))
+  }
+  for(const error of ['Not authorized','You cannot delete your own account','Admins can only delete users',
+    'Superadmin cannot be deleted','User does not exist','Not authenticated']) {
+    assert.ok(block.includes("'P0001','"+error+"'"),error)
+  }
+  for(const label of [
+    'automatic archive preserves locked and player-only semantics',
+    'deletion marker membership cleanup and character lifecycle preserved',
+    'public server archive event follows private highest sequence independently per round',
+    'rejected deletion preparations preserve all profiles rounds memberships characters and messages',
+    'repeated preparation preserves original marker orphan timestamps and message counts',
+    'late second-round insert failure rolls back marker every round orphan membership active ID character and message',
+    'retry after late rollback archives both rounds without partial earlier messages',
+  ]) assert.ok(block.includes(label),label)
+  assert.match(block,/new_message\.author_user_id is null\s+and new_message\.recipient_user_id is null and new_message\.character_id is null/)
+  assert.doesNotMatch(block.replace(/--[^\n]*/g,''),/delete from (?:auth\.users|public\.profiles)/i)
+  assert.match(sql,/^begin;/m)
+  assert.match(sql,/rollback;\s*$/)
+})
+
+test('deletion grant hardening revokes explicit anon access without replacing the function or changing other role grants',()=>{
+  const migration=readFileSync('supabase/migrations/20260918101000_harden_prepare_user_deletion_execute_grants.sql','utf8')
+    .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+  assert.equal(migration,
+    'REVOKE ALL ON FUNCTION public.prepare_user_deletion(uuid) FROM PUBLIC; '+
+    'REVOKE ALL ON FUNCTION public.prepare_user_deletion(uuid) FROM anon; '+
+    'GRANT EXECUTE ON FUNCTION public.prepare_user_deletion(uuid) TO authenticated;')
+})

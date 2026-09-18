@@ -87,17 +87,16 @@ export function useUpdateRound() {
 
       try {
         const { data, error } = await supabase
-          .from('rounds')
-          .update({
-            name: normalizedName,
-            system: normalizedSystem,
-            description: normalizedDescription,
-            appointment: normalizedAppointment,
-            status: input.status,
+          .rpc('update_round', {
+            p_round_id: roundId,
+            p_name: normalizedName,
+            p_system: normalizedSystem,
+            p_description: normalizedDescription,
+            p_appointment: normalizedAppointment,
+            p_status: input.status,
           })
-          .eq('id', roundId)
           .select(
-            'id, name, system, description, appointment, status, locked_at, locked_reason, created_at, updated_at',
+            'id, name, system, description, appointment, status, locked_at, locked_reason, orphaned_at, created_at, updated_at',
           )
           .maybeSingle()
           .overrideTypes<RoundDetails, { merge: false }>()

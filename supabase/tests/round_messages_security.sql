@@ -1,4 +1,4 @@
--- Run only after the Phase 3.1, Phase 3.2b, Phase 3.3a1, Phase 3.3a2-1, Phase 3.3b1 and Phase 3.3b2 migrations
+-- Run only after the Phase 3.1 through Phase 3.3c2-3 migrations
 -- in an approved isolated test database, as postgres, with psql ON_ERROR_STOP enabled.
 -- Everything, including fixture accounts, rolls back. No production data edits.
 -- If ON_ERROR_STOP aborts execution, issue ROLLBACK in any still-open session.
@@ -797,6 +797,624 @@ select pg_temp.check_chat((select count(*)=3 from public.round_messages where ro
   and (select role='player' from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and user_id=pg_temp.chat_id('gm'))
   and not exists(select 1 from public.round_memberships where round_id=pg_temp.chat_id('transfer_round') and active_character_id is not null),
   'locked transfer leaves roles messages and active selections unchanged');
+
+-- Phase 3.3c2-1: isolated GM edits, using real message producers for seq 1..3.
+insert into chat_test_ids(key) values ('edit_round'), ('edit_prepared');
+insert into public.rounds(id,name) values (pg_temp.chat_id('edit_round'),'Edit fixture');
+insert into public.round_memberships(round_id,user_id,role) values
+(pg_temp.chat_id('edit_round'),pg_temp.chat_id('gm'),'game_master'),
+(pg_temp.chat_id('edit_round'),pg_temp.chat_id('second'),'player'),
+(pg_temp.chat_id('edit_round'),pg_temp.chat_id('player'),'player');
+insert into public.characters(id,name,round_id,template_key,template_version)
+values(pg_temp.chat_id('edit_prepared'),'Edit prepared',pg_temp.chat_id('edit_round'),'vaesen',1);
+select pg_temp.check_chat(
+  has_function_privilege('authenticated','public.update_round(uuid,text,text,text,text,text)','EXECUTE')
+  and not has_function_privilege('anon','public.update_round(uuid,text,text,text,text,text)','EXECUTE'),
+  'round edit RPC execute restricted to authenticated');
+select pg_temp.check_chat(
+  not has_column_privilege('authenticated','public.rounds','status','UPDATE')
+  and not has_column_privilege('anon','public.rounds','status','UPDATE')
+  and has_column_privilege('authenticated','public.rounds','name','UPDATE')
+  and has_column_privilege('authenticated','public.rounds','system','UPDATE')
+  and has_column_privilege('authenticated','public.rounds','description','UPDATE')
+  and has_column_privilege('authenticated','public.rounds','appointment','UPDATE'),
+  'effective grants deny direct status but retain all four metadata columns');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select public.send_round_message(pg_temp.chat_id('edit_round'),'Edit history',gen_random_uuid(),null);
+select public.assign_prepared_character(pg_temp.chat_id('edit_prepared'),pg_temp.chat_id('player'));
+select public.transfer_game_master(pg_temp.chat_id('edit_round'),pg_temp.chat_id('second'));
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select pg_temp.check_chat((select name='Paused name' and system='vaesen' and description='Description'
+  and appointment='Friday' and status='paused' and orphaned_at is null
+  from public.update_round(pg_temp.chat_id('edit_round'),' Paused name ','vaesen','Description','Friday','paused')),
+  'pause returns updated metadata and status in one row');
+reset role;
+-- Privileged observation includes the other recipient's private row.
+select pg_temp.check_chat((select array_agg(round_seq order by round_seq)=array[1,2,3,4]::bigint[]
+  from public.round_messages where round_id=pg_temp.chat_id('edit_round'))
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=1 and kind='character_message')
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=2 and recipient_user_id=pg_temp.chat_id('player'))
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=3 and kind='system_message' and recipient_user_id is null)
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=4
+    and kind='system_message' and speaker_kind='system' and speaker_name_snapshot='System'
+    and author_user_id is null and recipient_user_id is null and character_id is null
+    and body='Die Runde wurde pausiert.' and client_request_id is not null),
+  'pause shares sequence with character private assignment and public transfer messages');
+set local role authenticated;
+select public.update_round(pg_temp.chat_id('edit_round'),'Paused name','vaesen','Description','Friday','paused');
+select pg_temp.check_chat((select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+  'paused to paused creates no additional visible message');
+select pg_temp.check_chat((public.update_round(pg_temp.chat_id('edit_round'),'Active name','vaesen','Description','Friday','active')).status='active',
+  'resume returns active status');
+select pg_temp.check_chat((select count(*)=1 from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=5
+  and kind='system_message' and speaker_kind='system' and speaker_name_snapshot='System'
+  and author_user_id is null and recipient_user_id is null and character_id is null
+  and body='Die Runde wurde fortgesetzt.' and client_request_id is not null),
+  'resume creates exactly one public system message');
+select public.update_round(pg_temp.chat_id('edit_round'),'Active name','vaesen','Description','Friday','active');
+select pg_temp.check_chat((select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+  'active to active creates no additional visible message');
+select pg_temp.check_chat((select name='Metadata name' and system is null and description='New description' and appointment='Saturday' and status='active'
+  from public.update_round(pg_temp.chat_id('edit_round'),'Metadata name','','New description','Saturday','active'))
+  and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+  'metadata-only RPC edit changes all fields without a message');
+
+-- Even a current GM cannot bypass message production via a direct status write.
+select pg_temp.chat_error($q$update public.rounds set status='paused' where id=pg_temp.chat_id('edit_round')$q$,'42501');
+update public.rounds set name='Direct metadata',system='vaesen',description='Direct description',appointment='Sunday'
+where id=pg_temp.chat_id('edit_round');
+select pg_temp.check_chat((select name='Direct metadata' and system='vaesen' and description='Direct description'
+  and appointment='Sunday' and status='active' from public.rounds where id=pg_temp.chat_id('edit_round'))
+  and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+  'direct status bypass denied while legitimate GM metadata update still works');
+
+do $$
+declare
+  viewer text;
+  before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('edit_round');
+  foreach viewer in array array['player','gm','admin','super'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(viewer)::text,true);
+    perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('edit_round'),'Unauthorized','bad','bad','bad','paused')$q$,'P0001','Not authorized');
+  end loop;
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('edit_round'))
+    and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+    'player former GM admin and superadmin cannot edit without current GM membership');
+end;
+$$;
+
+-- Round locking must reject the entire edit, including metadata.
+reset role;
+update public.rounds set locked_at=now(),locked_reason='Edit test' where id=pg_temp.chat_id('edit_round');
+set local role authenticated;
+do $$
+declare before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('edit_round');
+  perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('edit_round'),'Locked edit','bad','bad','bad','paused')$q$,'P0001','Round is locked');
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('edit_round'))
+    and (select count(*)=4 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+    'locked edit preserves complete round row and messages');
+end;
+$$;
+reset role;
+update public.rounds set locked_at=null,locked_reason=null where id=pg_temp.chat_id('edit_round');
+insert into public.round_messages(round_id,round_seq,speaker_kind,speaker_name_snapshot,body,client_request_id)
+values(pg_temp.chat_id('edit_round'),9007199254740991,'game_master','Spielleitung','Edit sequence limit',gen_random_uuid());
+set local role authenticated;
+do $$
+declare before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('edit_round');
+  perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('edit_round'),'Rollback name','Rollback system','Rollback description','Rollback appointment','paused')$q$,'23514');
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('edit_round'))
+    and (select count(*)=5 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+    'late edit message failure rolls back status all metadata and message');
+end;
+$$;
+reset role;
+select pg_temp.check_chat((select count(*)=6 from public.round_messages where round_id=pg_temp.chat_id('edit_round')),
+  'edit failure and no-ops preserve hidden private history too');
+delete from public.round_messages where round_id=pg_temp.chat_id('edit_round') and round_seq=9007199254740991;
+set local role authenticated;
+-- Preserve the existing form transitions; 3.3c2-2 adds one event per archive.
+select pg_temp.check_chat((public.update_round(pg_temp.chat_id('edit_round'),'Archive name',null,null,null,'archived')).status='archived','form edit can archive');
+select pg_temp.check_chat((public.update_round(pg_temp.chat_id('edit_round'),'Unarchive active',null,null,null,'active')).status='active','form edit can unarchive to active');
+select public.update_round(pg_temp.chat_id('edit_round'),'Archive again',null,null,null,'archived');
+select pg_temp.check_chat((public.update_round(pg_temp.chat_id('edit_round'),'Unarchive paused',null,null,null,'paused')).status='paused','form edit can unarchive to paused');
+-- The old definer remains callable despite revoked direct table UPDATE.
+select public.set_round_archived(pg_temp.chat_id('edit_round'),true);
+select public.set_round_archived(pg_temp.chat_id('edit_round'),false);
+reset role;
+select pg_temp.check_chat((select count(*)=8 from public.round_messages where round_id=pg_temp.chat_id('edit_round'))
+  and (select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('edit_round')
+    and kind='system_message' and recipient_user_id is null and body='Die Runde wurde archiviert.')
+  and (select status='paused' from public.rounds where id=pg_temp.chat_id('edit_round')),
+  'existing form archive transitions emit three archive events while unarchive stays message-free');
+
+-- Phase 3.3c2-2: both manual archive paths use the same public event contract.
+insert into chat_test_ids(key) values
+  ('archive_round'), ('archive_prepared'), ('archive_private_tail'), ('archive_orphan');
+insert into public.rounds(id,name) values (pg_temp.chat_id('archive_round'),'Manual archive fixture');
+insert into public.round_memberships(round_id,user_id,role) values
+(pg_temp.chat_id('archive_round'),pg_temp.chat_id('gm'),'game_master'),
+(pg_temp.chat_id('archive_round'),pg_temp.chat_id('second'),'player'),
+(pg_temp.chat_id('archive_round'),pg_temp.chat_id('player'),'player');
+insert into public.characters(id,name,round_id,template_key,template_version)
+select id,'Archive prepared',pg_temp.chat_id('archive_round'),'vaesen',1
+from chat_test_ids where key in ('archive_prepared','archive_private_tail');
+select pg_temp.check_chat(
+  has_function_privilege('authenticated','public.set_round_archived(uuid,boolean)','EXECUTE')
+  and not has_function_privilege('anon','public.set_round_archived(uuid,boolean)','EXECUTE'),
+  'manual archive preserves RPC execute grants');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select public.send_round_message(pg_temp.chat_id('archive_round'),'Archive history',gen_random_uuid(),null);
+select public.assign_prepared_character(pg_temp.chat_id('archive_prepared'),pg_temp.chat_id('player'));
+select public.transfer_game_master(pg_temp.chat_id('archive_round'),pg_temp.chat_id('second'));
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select public.update_round(pg_temp.chat_id('archive_round'),'Manual archive fixture',null,null,null,'paused');
+select public.update_round(pg_temp.chat_id('archive_round'),'Manual archive fixture',null,null,null,'active');
+select public.assign_prepared_character(pg_temp.chat_id('archive_private_tail'),pg_temp.chat_id('player'));
+reset role;
+select pg_temp.check_chat((select array_agg(round_seq order by round_seq)=array[1,2,3,4,5,6]::bigint[]
+  from public.round_messages where round_id=pg_temp.chat_id('archive_round'))
+  and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_round')
+    and round_seq=6 and kind='system_message' and recipient_user_id=pg_temp.chat_id('player')),
+  'archive fixture includes chat private assignment transfer pause resume and a private sequence tail');
+set local role authenticated;
+-- Each iteration ends archived; the next setup unarchives without a message.
+do $$
+declare
+  archive_path text;
+  starting_status text;
+  before_count bigint;
+  expected_seq bigint := 6;
+  archive_message public.round_messages;
+begin
+  perform pg_temp.check_chat((select max(round_seq)=5 and count(*)=4
+    from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+    'GM cannot see the private highest sequence before manual archive');
+  foreach archive_path in array array['update_round','set_round_archived'] loop
+    foreach starting_status in array array['active','paused'] loop
+      select count(*) into before_count from public.round_messages where round_id=pg_temp.chat_id('archive_round');
+      perform public.update_round(pg_temp.chat_id('archive_round'),'Before archive','vaesen','Before description','Friday',starting_status);
+      perform pg_temp.check_chat((select status=starting_status from public.rounds where id=pg_temp.chat_id('archive_round'))
+        and (select count(*)=before_count from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+        archive_path || ' setup/unarchive to ' || starting_status || ' is message-free');
+      if archive_path='update_round' then
+        perform public.update_round(pg_temp.chat_id('archive_round'),'Archived edit','New system','New description','Saturday','archived');
+        perform pg_temp.check_chat((select name='Archived edit' and system='New system'
+          and description='New description' and appointment='Saturday' from public.rounds where id=pg_temp.chat_id('archive_round')),
+          'archive through edit also saves all metadata');
+      else
+        perform public.set_round_archived(pg_temp.chat_id('archive_round'),true);
+        perform pg_temp.check_chat((select name='Before archive' and system='vaesen'
+          and description='Before description' and appointment='Friday' from public.rounds where id=pg_temp.chat_id('archive_round')),
+          'archive-only RPC preserves metadata');
+      end if;
+      expected_seq := expected_seq+1;
+      select * into archive_message from public.round_messages
+      where round_id=pg_temp.chat_id('archive_round') and round_seq=expected_seq;
+      perform pg_temp.check_chat(archive_message.id is not null
+        and archive_message.kind='system_message' and archive_message.speaker_kind='system'
+        and archive_message.speaker_name_snapshot='System' and archive_message.author_user_id is null
+        and archive_message.recipient_user_id is null and archive_message.character_id is null
+        and archive_message.body='Die Runde wurde archiviert.' and archive_message.client_request_id is not null
+        and (select status='archived' from public.rounds where id=pg_temp.chat_id('archive_round'))
+        and (select count(*)=before_count+1 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+        archive_path || ' from ' || starting_status || ' emits exactly one public archive at the shared sequence');
+      -- Both directions of cross-path retry, including each path's own retry.
+      perform public.set_round_archived(pg_temp.chat_id('archive_round'),true);
+      perform public.update_round(pg_temp.chat_id('archive_round'),'Archived metadata',null,null,null,'archived');
+      perform pg_temp.check_chat((select status='archived' and name='Archived metadata' from public.rounds where id=pg_temp.chat_id('archive_round'))
+        and (select count(*)=before_count+1 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+        'same and opposite archive paths never duplicate the archive event');
+      perform pg_temp.chat_error($q$select public.send_round_message(pg_temp.chat_id('archive_round'),'Archived GM send',gen_random_uuid(),null)$q$,
+        '42501','CHAT_ROUND_ARCHIVED');
+    end loop;
+  end loop;
+end;
+$$;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+select pg_temp.check_chat((select count(*)=4 from public.round_messages
+  where round_id=pg_temp.chat_id('archive_round') and body='Die Runde wurde archiviert.' and recipient_user_id is null),
+  'ordinary member reads all archive events in archived history');
+select pg_temp.chat_error($q$select public.send_round_message(pg_temp.chat_id('archive_round'),'Archived player send',gen_random_uuid(),pg_temp.chat_id('archive_prepared'))$q$,
+  '42501','CHAT_ROUND_ARCHIVED');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select public.set_round_archived(pg_temp.chat_id('archive_round'),false);
+select pg_temp.check_chat((select status='paused' from public.rounds where id=pg_temp.chat_id('archive_round'))
+  and (select count(*)=8 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+  'archive RPC unarchives to paused without a message');
+select pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),false)$q$,
+  'P0001','Round is not archived');
+
+-- Admin and Bewahrer retain archive/unarchive rights without chat-content access.
+do $$
+declare
+  administrator text;
+  expected_seq bigint := 10;
+begin
+  foreach administrator in array array['admin','super'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(administrator)::text,true);
+    perform pg_temp.check_chat(not exists(select 1 from public.round_memberships
+      where round_id=pg_temp.chat_id('archive_round') and user_id=auth.uid()),'admin archive fixture has no membership');
+    perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('archive_round'),'Admin edit',null,null,null,'archived')$q$,
+      'P0001','Not authorized');
+    perform public.set_round_archived(pg_temp.chat_id('archive_round'),true);
+    perform pg_temp.check_chat(not public.can_read_round_messages(pg_temp.chat_id('archive_round'))
+      and not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+      administrator || ' archive authority never grants chat access');
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+    expected_seq := expected_seq+1;
+    perform pg_temp.check_chat((select status='archived' from public.rounds where id=pg_temp.chat_id('archive_round'))
+      and (select count(*)=expected_seq-2 from public.round_messages where round_id=pg_temp.chat_id('archive_round'))
+      and exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_round') and round_seq=expected_seq
+        and kind='system_message' and speaker_kind='system' and speaker_name_snapshot='System'
+        and author_user_id is null and recipient_user_id is null and character_id is null
+        and body='Die Runde wurde archiviert.' and client_request_id is not null),
+      administrator || ' manual archive emits one public event');
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(administrator)::text,true);
+    perform public.set_round_archived(pg_temp.chat_id('archive_round'),false);
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+    perform pg_temp.check_chat((select status='paused' from public.rounds where id=pg_temp.chat_id('archive_round'))
+      and (select count(*)=expected_seq-2 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+      administrator || ' unarchive remains paused and message-free');
+  end loop;
+end;
+$$;
+do $$
+declare
+  caller text;
+  before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('archive_round');
+  foreach caller in array array['player','gm'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(caller)::text,true);
+    perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),true)$q$,'P0001','Not authorized');
+    perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),false)$q$,'P0001','Not authorized');
+  end loop;
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('archive_round'))
+    and (select count(*)=10 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+    'player and former GM archive attempts change neither round nor messages');
+end;
+$$;
+reset role;
+update public.rounds set locked_at=now(),locked_reason='Archive test' where id=pg_temp.chat_id('archive_round');
+set local role authenticated;
+do $$
+declare
+  caller text;
+  before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('archive_round');
+  foreach caller in array array['second','admin','super'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(caller)::text,true);
+    perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),true)$q$,'P0001','Round is locked');
+    perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),false)$q$,'P0001','Round is locked');
+  end loop;
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+  perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('archive_round'),'Locked archive',null,null,null,'archived')$q$,'P0001','Round is locked');
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('archive_round'))
+    and (select count(*)=10 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+    'moderation lock blocks both archive paths including admin and Bewahrer');
+end;
+$$;
+reset role;
+update public.rounds set locked_at=null,locked_reason=null where id=pg_temp.chat_id('archive_round');
+insert into public.round_messages(round_id,round_seq,speaker_kind,speaker_name_snapshot,body,client_request_id)
+values(pg_temp.chat_id('archive_round'),9007199254740991,'game_master','Spielleitung','Archive sequence limit',gen_random_uuid());
+set local role authenticated;
+do $$
+declare before_round public.rounds;
+begin
+  select * into before_round from public.rounds where id=pg_temp.chat_id('archive_round');
+  perform pg_temp.chat_error($q$select public.update_round(pg_temp.chat_id('archive_round'),'Rollback archive','Rollback system','Rollback description','Rollback appointment','archived')$q$,'23514');
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('archive_round'))
+    and (select count(*)=11 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+    'late archive insert failure rolls back edit status and every metadata field');
+  perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_round'),true)$q$,'23514');
+  perform pg_temp.check_chat((select r is not distinct from before_round from public.rounds r where id=pg_temp.chat_id('archive_round'))
+    and (select count(*)=11 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+    'late archive insert failure rolls back archive-only RPC completely');
+end;
+$$;
+reset role;
+select pg_temp.check_chat((select count(*)=13 from public.round_messages where round_id=pg_temp.chat_id('archive_round')),
+  'archive no-ops and failed writes preserve private history too');
+delete from public.round_messages where round_id=pg_temp.chat_id('archive_round') and round_seq=9007199254740991;
+
+-- Orphan fixture only; never call prepare_user_deletion or delete an account.
+insert into public.rounds(id,name,status,orphaned_at)
+values(pg_temp.chat_id('archive_orphan'),'Orphan archive fixture','archived',now());
+set local role authenticated;
+do $$
+declare administrator text;
+begin
+  foreach administrator in array array['admin','super'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(administrator)::text,true);
+    perform public.set_round_archived(pg_temp.chat_id('archive_orphan'),true);
+    perform pg_temp.chat_error($q$select public.set_round_archived(pg_temp.chat_id('archive_orphan'),false)$q$,
+      'P0001','Round must be recovered before it can leave the archive');
+  end loop;
+end;
+$$;
+reset role;
+select pg_temp.check_chat((select status='archived' and orphaned_at is not null from public.rounds where id=pg_temp.chat_id('archive_orphan'))
+  and not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_orphan')),
+  'orphan archive no-op and blocked unarchive preserve state without a message');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('super')::text,true);
+select public.recover_orphaned_round(pg_temp.chat_id('archive_orphan'),pg_temp.chat_id('gm'));
+reset role;
+select pg_temp.check_chat((select status='archived' and orphaned_at is null from public.rounds where id=pg_temp.chat_id('archive_orphan'))
+  and not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_orphan')),
+  'recovery clears orphan marker but neither unarchives nor emits a message');
+set local role authenticated;
+select public.set_round_archived(pg_temp.chat_id('archive_orphan'),false);
+reset role;
+select pg_temp.check_chat((select status='paused' and orphaned_at is null from public.rounds where id=pg_temp.chat_id('archive_orphan'))
+  and not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_orphan')),
+  'recovered round unarchives silently to paused');
+
+-- Phase 3.3c2-3: deletion PREPARATION only; never delete auth.users/profiles.
+-- All new accounts and rounds are transaction-local fixtures and roll back.
+create temporary table deletion_targets (
+  key text primary key, id uuid not null default gen_random_uuid(),
+  account_role text not null default 'user', executor text not null default 'admin'
+);
+insert into deletion_targets(key,account_role,executor) values
+('active','user','admin'),('paused','user','admin'),('archived','user','admin'),
+('locked_active','user','admin'),('locked_paused','user','admin'),('player_only','user','admin'),
+('multi','user','admin'),('rollback','user','admin'),
+('super_user','user','super'),('admin_target','admin','super');
+create temporary table deletion_cases (
+  key text primary key, target_key text not null references deletion_targets(key),
+  round_id uuid not null default gen_random_uuid(), original_status text not null,
+  locked boolean not null default false, is_gm boolean not null default true,
+  seed_seq bigint not null default 2,
+  character_id uuid not null default gen_random_uuid(),
+  survivor_character_id uuid not null default gen_random_uuid()
+);
+insert into deletion_cases(key,target_key,original_status,locked,is_gm,seed_seq) values
+('active','active','active',false,true,2),
+('paused','paused','paused',false,true,2),
+('archived','archived','archived',false,true,2),
+('locked_active','locked_active','active',true,true,2),
+('locked_paused','locked_paused','paused',true,true,2),
+('player_only','player_only','active',false,false,2),
+('multi_active','multi','active',false,true,10),
+('multi_paused','multi','paused',false,true,20),
+('multi_archived','multi','archived',false,true,30),
+('super_user','super_user','active',false,true,2),
+('admin_target','admin_target','active',false,true,2);
+-- The overflow belongs to the SECOND UUID-sorted round, after a successful insert.
+insert into deletion_cases(key,target_key,round_id,original_status,seed_seq)
+select 'rollback_'||position,'rollback',id,
+  case when position=1 then 'active' else 'paused' end,
+  case when position=1 then 2 else 9007199254740991 end
+from (select id,row_number() over(order by id) as position
+  from (values(gen_random_uuid()),(gen_random_uuid())) ids(id)) ordered;
+grant select on deletion_targets,deletion_cases to authenticated;
+insert into auth.users(id,raw_user_meta_data)
+select id,jsonb_build_object('username','chat_delete_'||id::text,'display_name','Deletion Test')
+from deletion_targets;
+update public.profiles p set role=t.account_role from deletion_targets t where p.id=t.id;
+insert into public.rounds(id,name)
+select round_id,'Deletion '||key from deletion_cases;
+insert into public.round_memberships(round_id,user_id,role)
+select c.round_id,t.id,case when c.is_gm then 'game_master' else 'player' end
+from deletion_cases c join deletion_targets t on t.key=c.target_key
+union all
+select round_id,pg_temp.chat_id('second'),case when is_gm then 'player' else 'game_master' end
+from deletion_cases;
+insert into public.characters(id,name,owner_user_id,round_id,template_key,template_version)
+select c.character_id,'Deletion owned',t.id,c.round_id,'vaesen',1
+from deletion_cases c join deletion_targets t on t.key=c.target_key
+union all
+select survivor_character_id,'Survivor owned',pg_temp.chat_id('second'),round_id,'vaesen',1
+from deletion_cases;
+-- Lifecycle triggers select both sole owned characters before status/lock fixtures.
+select pg_temp.check_chat(not exists(
+  select 1 from deletion_cases c join deletion_targets t on t.key=c.target_key
+  join public.round_memberships m on m.round_id=c.round_id and m.user_id=t.id
+  where m.active_character_id is distinct from c.character_id),
+  'deletion fixtures have valid active characters before cleanup');
+update public.rounds r set status=c.original_status,
+  locked_at=case when c.locked then now() else null end,
+  locked_reason=case when c.locked then 'Deletion moderation fixture' else null end
+from deletion_cases c where r.id=c.round_id;
+insert into public.round_messages(round_id,round_seq,kind,speaker_kind,speaker_name_snapshot,body,client_request_id)
+select round_id,1,'system_message','system','System',
+  case when original_status='archived' then 'Die Runde wurde archiviert.' else 'Existing public history' end,
+  gen_random_uuid() from deletion_cases;
+-- The highest sequence is private; new public events must still follow it.
+insert into public.round_messages(round_id,round_seq,kind,speaker_kind,speaker_name_snapshot,recipient_user_id,character_id,body,client_request_id)
+select round_id,seed_seq,'system_message','system','System',pg_temp.chat_id('second'),
+  survivor_character_id,'Existing private history',gen_random_uuid() from deletion_cases;
+
+-- Full-row snapshots catch partial marker, metadata, active-ID or cleanup changes.
+-- Invoker-only helper is used as postgres before/after authenticated calls.
+create function pg_temp.deletion_snapshot(p_key text default null)
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'profiles',(select jsonb_agg(to_jsonb(p) order by p.id) from public.profiles p
+      join deletion_targets t on t.id=p.id where p_key is null or t.key=p_key),
+    'rounds',(select jsonb_agg(to_jsonb(r) order by r.id) from public.rounds r
+      join deletion_cases c on c.round_id=r.id where p_key is null or c.target_key=p_key),
+    'memberships',(select jsonb_agg(to_jsonb(m) order by m.id) from public.round_memberships m
+      join deletion_cases c on c.round_id=m.round_id where p_key is null or c.target_key=p_key),
+    'characters',(select jsonb_agg(to_jsonb(ch) order by ch.id) from public.characters ch
+      join deletion_cases c on ch.id in (c.character_id,c.survivor_character_id)
+      where p_key is null or c.target_key=p_key),
+    'messages',(select jsonb_agg(to_jsonb(m) order by m.id) from public.round_messages m
+      join deletion_cases c on c.round_id=m.round_id where p_key is null or c.target_key=p_key)
+  );
+$$;
+create temporary table deletion_snapshots(key text primary key, data jsonb not null);
+insert into deletion_snapshots values ('permissions',pg_temp.deletion_snapshot());
+select pg_temp.check_chat(
+  has_function_privilege('authenticated','public.prepare_user_deletion(uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.prepare_user_deletion(uuid)','EXECUTE'),
+  'deletion preparation execute grants unchanged');
+set local role authenticated;
+do $$
+declare target_id uuid;
+begin
+  select id into target_id from deletion_targets where key='active';
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+  perform pg_temp.chat_error(format('select public.prepare_user_deletion(%L::uuid)',target_id),
+    'P0001','Not authorized');
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('admin')::text,true);
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion(pg_temp.chat_id('admin'))$q$,
+    'P0001','You cannot delete your own account');
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion((select id from deletion_targets where key='admin_target'))$q$,
+    'P0001','Admins can only delete users');
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion(pg_temp.chat_id('super'))$q$,
+    'P0001','Superadmin cannot be deleted');
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion(gen_random_uuid())$q$,
+    'P0001','User does not exist');
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion(null)$q$,
+    'P0001','User does not exist');
+  perform set_config('request.jwt.claim.sub',pg_temp.chat_id('super')::text,true);
+  perform pg_temp.chat_error($q$select public.prepare_user_deletion(pg_temp.chat_id('super'))$q$,
+    'P0001','You cannot delete your own account');
+  perform set_config('request.jwt.claim.sub','',true);
+  perform pg_temp.chat_error(format('select public.prepare_user_deletion(%L::uuid)',target_id),
+    'P0001','Not authenticated');
+end;
+$$;
+reset role;
+select pg_temp.check_chat(pg_temp.deletion_snapshot()=(select data from deletion_snapshots where key='permissions'),
+  'rejected deletion preparations preserve all profiles rounds memberships characters and messages');
+
+set local role authenticated;
+do $$
+declare target record;
+begin
+  for target in select * from deletion_targets where key<>'rollback' order by key loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(target.executor)::text,true);
+    perform public.prepare_user_deletion(target.id);
+  end loop;
+end;
+$$;
+reset role;
+do $$
+declare
+  fixture record;
+  stored_round public.rounds;
+  new_message public.round_messages;
+  expected_new boolean;
+begin
+  for fixture in select c.*,t.id as target_id from deletion_cases c
+    join deletion_targets t on t.key=c.target_key where c.target_key<>'rollback'
+  loop
+    expected_new := fixture.is_gm and fixture.original_status<>'archived';
+    select * into stored_round from public.rounds where id=fixture.round_id;
+    perform pg_temp.check_chat(stored_round.id is not null
+      and stored_round.status=(case when fixture.is_gm then 'archived' else fixture.original_status end)
+      and ((stored_round.orphaned_at is not null)=fixture.is_gm)
+      and ((stored_round.locked_at is not null)=fixture.locked)
+      and stored_round.locked_reason is not distinct from
+        (case when fixture.locked then 'Deletion moderation fixture' else null end),
+      fixture.key||' automatic archive preserves locked and player-only semantics');
+    perform pg_temp.check_chat((select deletion_pending_at is not null from public.profiles where id=fixture.target_id)
+      and not exists(select 1 from public.round_memberships where user_id=fixture.target_id)
+      and exists(select 1 from public.characters where id=fixture.character_id
+        and owner_user_id=fixture.target_id and round_id is null)
+      and exists(select 1 from public.round_memberships where round_id=fixture.round_id
+        and user_id=pg_temp.chat_id('second') and active_character_id=fixture.survivor_character_id
+        and role=(case when fixture.is_gm then 'player' else 'game_master' end))
+      and exists(select 1 from public.characters where id=fixture.survivor_character_id and round_id=fixture.round_id),
+      fixture.key||' deletion marker membership cleanup and character lifecycle preserved');
+    perform pg_temp.check_chat((select count(*)=2+(case when expected_new then 1 else 0 end)
+      from public.round_messages where round_id=fixture.round_id)
+      and (select count(*)=(case when fixture.is_gm then 1 else 0 end)
+        from public.round_messages where round_id=fixture.round_id and body='Die Runde wurde archiviert.'),
+      fixture.key||' exactly one new archive event or unchanged archived history');
+    if expected_new then
+      select * into new_message from public.round_messages
+      where round_id=fixture.round_id and round_seq=fixture.seed_seq+1;
+      perform pg_temp.check_chat(new_message.id is not null
+        and new_message.kind='system_message' and new_message.speaker_kind='system'
+        and new_message.speaker_name_snapshot='System' and new_message.author_user_id is null
+        and new_message.recipient_user_id is null and new_message.character_id is null
+        and new_message.body='Die Runde wurde archiviert.'
+        and new_message.client_request_id is not null and new_message.created_at is not null,
+        fixture.key||' public server archive event follows private highest sequence independently per round');
+    end if;
+  end loop;
+end;
+$$;
+-- Admin and Bewahrer never gain chat access merely by preparing deletion.
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('admin')::text,true);
+select pg_temp.check_chat(not exists(select 1 from public.round_messages
+  where round_id in(select round_id from deletion_cases)),'deletion authority grants no chat-content access');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('super')::text,true);
+select pg_temp.check_chat(not exists(select 1 from public.round_messages
+  where round_id in(select round_id from deletion_cases)),'Bewahrer deletion authority grants no chat-content access');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('second')::text,true);
+select pg_temp.check_chat((select count(*)=3 from public.round_messages
+  where round_id=(select round_id from deletion_cases where key='active')),
+  'remaining member reads automatic archive event with existing RLS');
+select pg_temp.check_chat(not exists(select 1 from public.round_messages
+  where round_id=(select round_id from deletion_cases where key='locked_active')),
+  'automatic archive does not bypass moderation lock for remaining player');
+reset role;
+
+insert into deletion_snapshots values ('completed',pg_temp.deletion_snapshot());
+set local role authenticated;
+do $$
+declare target record;
+begin
+  for target in select * from deletion_targets where key<>'rollback' order by key loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(target.executor)::text,true);
+    perform public.prepare_user_deletion(target.id);
+  end loop;
+end;
+$$;
+reset role;
+select pg_temp.check_chat(pg_temp.deletion_snapshot()=(select data from deletion_snapshots where key='completed'),
+  'repeated preparation preserves original marker orphan timestamps and message counts');
+
+-- Later round overflows after the first UUID-sorted round has archived/inserted.
+select pg_temp.check_chat(
+  (select round_id from deletion_cases where key='rollback_1') <
+  (select round_id from deletion_cases where key='rollback_2')
+  and (select original_status='active' and seed_seq=2 from deletion_cases where key='rollback_1')
+  and (select original_status='paused' and seed_seq=9007199254740991 from deletion_cases where key='rollback_2'),
+  'rollback fixture fails in the later UUID-sorted GM round');
+insert into deletion_snapshots values ('rollback',pg_temp.deletion_snapshot('rollback'));
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('admin')::text,true);
+select pg_temp.chat_error($q$select public.prepare_user_deletion((select id from deletion_targets where key='rollback'))$q$,'23514');
+reset role;
+select pg_temp.check_chat(pg_temp.deletion_snapshot('rollback')=(select data from deletion_snapshots where key='rollback')
+  and (select deletion_pending_at is null from public.profiles
+    where id=(select id from deletion_targets where key='rollback')),
+  'late second-round insert failure rolls back marker every round orphan membership active ID character and message');
+-- Removing only the overflow fixture makes the exact same preparation succeed.
+delete from public.round_messages where round_id=(select round_id from deletion_cases where key='rollback_2')
+  and round_seq=9007199254740991;
+set local role authenticated;
+select public.prepare_user_deletion((select id from deletion_targets where key='rollback'));
+reset role;
+select pg_temp.check_chat((select count(*)=2 from public.round_messages
+  where round_id in(select round_id from deletion_cases where target_key='rollback')
+    and body='Die Runde wurde archiviert.')
+  and not exists(select 1 from public.rounds where id in(select round_id from deletion_cases where target_key='rollback')
+    and (status<>'archived' or orphaned_at is null))
+  and not exists(select 1 from public.round_memberships
+    where user_id=(select id from deletion_targets where key='rollback'))
+  and not exists(select 1 from public.characters where owner_user_id=(select id from deletion_targets where key='rollback')
+    and round_id is not null),
+  'retry after late rollback archives both rounds without partial earlier messages');
 
 -- Phase 3.3b3: real parallel transfer/send/assignment/deletion and Realtime tests
 -- remain required; this single-transaction script proves no concurrent behavior.
