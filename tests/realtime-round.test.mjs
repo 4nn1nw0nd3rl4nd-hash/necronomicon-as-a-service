@@ -1719,7 +1719,51 @@ test('play route remains inside RequireAuth and AppLayout, without an admin acce
 const chatMessage=(seq,overrides={})=>({id:`message-${seq}`,round_id:round,round_seq:seq,author_user_id:user,
   recipient_user_id:null,character_id:other,speaker_kind:'character',speaker_name_snapshot:'Astrid',kind:'character_message',
   body:`Nachricht ${seq}`,client_request_id:`request-${seq}`,created_at:'2026-09-14T10:00:00Z',...overrides})
+const diceMessage=(seq,overrides={})=>chatMessage(seq,{kind:'dice_roll',body:null,dice_roll:{message_id:`message-${seq}`,
+  dice_count:3,dice_sides:6,modifier:-2,results:[4,1,6],raw_total:11,total:9},...overrides})
 const chatBatch=(start,end)=>Array.from({length:end-start+1},(_,i)=>chatMessage(start+i))
+
+test('round-message decoder validates text variants and preserves the private assignment identity',()=>{
+  const h=harness({}),{decodeRoundMessage}=h.load('src/types/roundMessage.ts')
+  const character=decodeRoundMessage(chatMessage(1))
+  assert.equal(character.kind,'character_message');assert.equal(character.body,'Nachricht 1')
+  const publicSystem=decodeRoundMessage(chatMessage(2,{kind:'system_message',speaker_kind:'system',speaker_name_snapshot:'System',
+    author_user_id:null,recipient_user_id:null,character_id:null,body:'Die Runde wurde pausiert.'}))
+  assert.equal(publicSystem.kind,'system_message');assert.equal(publicSystem.recipient_user_id,null);assert.equal(publicSystem.character_id,null)
+  const system=decodeRoundMessage(chatMessage(3,{kind:'system_message',speaker_kind:'system',speaker_name_snapshot:'System',
+    author_user_id:null,recipient_user_id:user,character_id:other,body:'Zugewiesen'}))
+  assert.equal(system.kind,'system_message');assert.equal(system.recipient_user_id,user);assert.equal(system.character_id,other)
+  assert.equal(decodeRoundMessage(chatMessage(4,{kind:'character_message',body:null})),null)
+  assert.equal(decodeRoundMessage(chatMessage(5,{kind:'system_message',speaker_kind:'character'})),null)
+  assert.equal(decodeRoundMessage(chatMessage(6,{kind:'unknown_message'})),null)
+  h.cleanup()
+})
+
+test('round-message decoder normalizes RPC object and PostgREST relation-array dice forms identically',()=>{
+  const h=harness({}),{decodeRoundMessage,formatDiceExpression}=h.load('src/types/roundMessage.ts')
+  const rpc=diceMessage(1),embedded={...rpc,dice_roll:[rpc.dice_roll]}
+  const decodedRpc=decodeRoundMessage(rpc),decodedEmbedded=decodeRoundMessage(embedded)
+  assert.deepEqual(JSON.parse(JSON.stringify(decodedRpc)),JSON.parse(JSON.stringify(decodedEmbedded)))
+  assert.deepEqual(Array.from(decodedRpc.dice_roll.results),[4,1,6])
+  assert.equal(formatDiceExpression(decodedRpc.dice_roll),'3d6-2')
+  assert.equal(formatDiceExpression({...decodedRpc.dice_roll,modifier:0}),'3d6')
+  assert.equal(formatDiceExpression({...decodedRpc.dice_roll,modifier:3}),'3d6+3')
+  h.cleanup()
+})
+
+test('round-message decoder retains a corrupt dice parent with a defined unavailable-detail state',()=>{
+  const h=harness({}),{decodeRoundMessage}=h.load('src/types/roundMessage.ts')
+  for(const raw of [
+    diceMessage(1,{dice_roll:null}),
+    diceMessage(2,{dice_roll:{message_id:'message-2',dice_count:2,dice_sides:6,modifier:0,results:'4,1',raw_total:5,total:5}}),
+    diceMessage(3,{dice_roll:{message_id:'message-3',dice_count:2,dice_sides:6,modifier:0,results:[4,1],raw_total:5}}),
+  ]) {
+    const decoded=decodeRoundMessage(raw)
+    assert.equal(decoded.kind,'dice_roll');assert.equal(decoded.body,null);assert.equal(decoded.dice_roll,null)
+  }
+  assert.equal(decodeRoundMessage(diceMessage(4,{body:'must be null'})),null)
+  h.cleanup()
+})
 function chatSetup() {
   const b=backend(),clock=browserClock(),h=harness(b.api,clock)
   const hook=h.load('src/hooks/useRoundMessages.ts').useRoundMessages
@@ -1744,6 +1788,9 @@ test('chat initial load requests latest 50, orders chronologically, and paginate
   await authorize(b.requests[0])
   assert.equal(b.requests[1].table,'round_messages')
   assert.match(b.requests[1].fields,/(?:^|,)recipient_user_id(?:,|$)/)
+  assert.match(b.requests[1].fields,/dice_roll:round_message_dice_rolls\(message_id,dice_count,dice_sides,modifier,results,raw_total,total\)/)
+  assert.doesNotMatch(b.requests[1].fields,/!inner/)
+  const fields=b.requests[1].fields
   assert.equal(b.requests[1].round_id,round)
   assert.equal(b.requests[1].limit,50)
   assert.deepEqual(b.requests[1].order,{key:'round_seq',ascending:false})
@@ -1752,11 +1799,25 @@ test('chat initial load requests latest 50, orders chronologically, and paginate
   assert.equal(h.render().initialLatestSeq,100)
   h.render().loadOlder();h.render().loadOlder();assert.equal(b.requests.length,3)
   await authorize(b.requests[2]);assert.deepEqual(b.requests[3].lt,{key:'round_seq',value:51})
-  b.requests[3].resolve({data:chatBatch(1,50).reverse(),error:null});await settle()
+  assert.equal(b.requests[3].fields,fields)
+  const olderBatch=chatBatch(1,50);olderBatch[24]=diceMessage(25)
+  b.requests[3].resolve({data:olderBatch.reverse(),error:null});await settle()
   assert.equal(h.render().messages.length,100)
+  assert.deepEqual(Array.from(h.render().messages.find(message=>message.round_seq===25).dice_roll.results),[4,1,6])
   h.render().reload();await authorize(b.requests[4])
   assert.deepEqual(b.requests[5].gt,{key:'round_seq',value:100},'older pages must not move the delta cursor')
+  assert.equal(b.requests[5].fields,fields)
   b.requests[5].resolve({data:[],error:null});await settle();h.cleanup()
+})
+
+test('chat fetch decodes valid and corrupt dice details without a separate detail query',async()=>{
+  const f=chatSetup(),{b,h}=f
+  await initialChat(f,[diceMessage(1),diceMessage(2,{dice_roll:[]})])
+  assert.equal(h.render().messages[0].kind,'dice_roll')
+  assert.deepEqual(Array.from(h.render().messages[0].dice_roll.results),[4,1,6])
+  assert.equal(h.render().messages[1].kind,'dice_roll');assert.equal(h.render().messages[1].dice_roll,null)
+  assert.equal(b.requests.filter(request=>request.table==='round_message_dice_rolls').length,0)
+  h.cleanup()
 })
 
 test('chat query preserves visible system-message fields without a client-side recipient filter',async()=>{
@@ -1774,7 +1835,7 @@ test('chat query preserves visible system-message fields without a client-side r
   h.cleanup()
 })
 
-test('chat renders character and GM messages unchanged and system messages as chronological info blocks',()=>{
+test('chat renders existing messages unchanged and dice messages with temporary success/error text',()=>{
   const h=harness({}, {document:{body:{style:{overflow:''}}}})
   const Panel=h.load('src/components/PlayChatPanel.tsx').default
   const messages=[
@@ -1782,11 +1843,13 @@ test('chat renders character and GM messages unchanged and system messages as ch
     chatMessage(2,{author_user_id:null,recipient_user_id:user,speaker_kind:'system',
       speaker_name_snapshot:'System',kind:'system_message',body:'Dir wurde der Charakter Elin Rosenqvist zugewiesen.'}),
     chatMessage(3,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),
+    diceMessage(4),
+    diceMessage(5,{dice_roll:null}),
   ]
   const tree=h.render(Panel,[{isDesktop:true,isOpen:true,onClose(){},chat:{...emptyChat(),messages},
     composer:emptyComposer(),disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}])
   const rendered=nodes(tree).filter(node=>node.type==='li'&&node.props.className?.includes('play-chat-message'))
-  assert.equal(rendered.length,3)
+  assert.equal(rendered.length,5)
   assert.deepEqual(rendered.map(node=>node.key),messages.map(message=>message.id))
   assert.equal(rendered[0].props.className,'play-chat-message')
   assert.equal(rendered[0].props['data-kind'],'character_message')
@@ -1798,6 +1861,10 @@ test('chat renders character and GM messages unchanged and system messages as ch
   assert.match(textOf(rendered[1]),/^System.*Dir wurde der Charakter Elin Rosenqvist zugewiesen\./)
   assert.doesNotMatch(textOf(rendered[1]),/null|undefined/)
   assert.ok(nodes(rendered[1]).some(node=>node.type==='time'))
+  assert.equal(rendered[3].props['data-kind'],'dice_roll')
+  assert.match(textOf(rendered[3]),/3d6-2 → 9/)
+  assert.match(textOf(rendered[4]),/Würfelergebnis konnte nicht geladen werden\./)
+  assert.doesNotMatch(textOf(rendered[4]),/null|undefined/)
   h.cleanup()
 })
 
@@ -1815,8 +1882,10 @@ test('chat uses exactly one INSERT-only channel and closes subscribe/initial rac
   assert.equal(h.render().messages.at(-1).round_seq,101)
   channel.cb({new:chatMessage(999)});channel.cb({new:chatMessage(1000)});clock.advance()
   assert.equal(h.render().messages.at(-1).round_seq,101,'Realtime payload never enters chat state')
-  await deltaChat(f,[chatMessage(102),chatMessage(102)])
+  await deltaChat(f,[diceMessage(102),diceMessage(102)])
   assert.equal(h.render().messages.length,52)
+  assert.equal(h.render().messages.at(-1).kind,'dice_roll')
+  assert.deepEqual(Array.from(h.render().messages.at(-1).dice_roll.results),[4,1,6])
   h.cleanup();assert.equal(b.removals.length,1)
 })
 
@@ -1986,17 +2055,17 @@ test('composer gating covers missing/invalid active character, GM, archive, lock
   f.h.cleanup()
 })
 
-test('collapsed/mobile chat shares messages and draft state, retains tabs and counts a visible system message as unread',()=>{
+test('collapsed/mobile chat shares messages and draft state, retains tabs and counts visible system/dice messages as unread',()=>{
   const f=shellSetup({chat:{...emptyChat(),messages:[chatMessage(50)],initialLatestSeq:50}})
   const header=tree=>nodes(tree).find(n=>n.type==='PlayModeHeader').props
   const panel=tree=>nodes(tree).find(n=>n.type==='PlayChatPanel').props
   let tree=f.render();header(tree).onTabChange('notes');header(tree).onChatToggle()
   const chat={...emptyChat(),messages:[chatMessage(50),chatMessage(51,{author_user_id:null,recipient_user_id:user,
-    speaker_kind:'system',speaker_name_snapshot:'System',kind:'system_message'})],initialLatestSeq:50}
-  tree=f.render({chat});assert.equal(header(tree).unreadCount,1);assert.equal(panel(tree).isOpen,false)
+    speaker_kind:'system',speaker_name_snapshot:'System',kind:'system_message'}),diceMessage(52)],initialLatestSeq:50}
+  tree=f.render({chat});assert.equal(header(tree).unreadCount,2);assert.equal(panel(tree).isOpen,false)
   assert.equal(panel(tree).chat,chat);assert.equal(header(tree).activeTab,'notes')
   header(tree).onChatToggle();tree=f.render();assert.equal(panel(tree).chat,chat)
-  panel(tree).onRead(51);tree=f.render();assert.equal(header(tree).unreadCount,0)
+  panel(tree).onRead(52);tree=f.render();assert.equal(header(tree).unreadCount,0)
   f.setDesktop(false);tree=f.render();header(tree).onChatToggle();tree=f.render()
   assert.equal(panel(tree).isDesktop,false);assert.equal(panel(tree).chat,chat)
   assert.equal(header(tree).activeTab,'notes');f.h.cleanup()

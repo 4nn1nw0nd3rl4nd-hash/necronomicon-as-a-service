@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { isValidMessageBody } from '../types/roundMessage'
-import type { RoundMessage } from '../types/roundMessage'
+import { decodeRoundMessage, isValidMessageBody } from '../types/roundMessage'
 
 const errorMessages: Record<string, string> = {
   CHAT_NOT_AUTHORIZED: 'Du hast keinen Zugriff auf diesen Chat.',
@@ -71,7 +70,7 @@ export function useSendRoundMessage(
       const { data, error } = await supabase.rpc('send_round_message', {
         p_round_id: roundId, p_body: attempt.body, p_client_request_id: attempt.requestId,
         p_expected_active_character_id: attempt.characterId,
-      }).abortSignal(lifetime.controller.signal).single().overrideTypes<RoundMessage, { merge: false }>()
+      }).abortSignal(lifetime.controller.signal).single().overrideTypes<unknown, { merge: false }>()
       if (!lifetime.active) return false
       if (error) {
         if (error.message === 'CHAT_IDENTITY_CHANGED' || error.message === 'CHAT_CHARACTER_UNAVAILABLE' || error.message === 'CHAT_NO_ACTIVE_CHARACTER') {
@@ -82,7 +81,8 @@ export function useSendRoundMessage(
         onAccessRefresh()
         return false
       }
-      if (!data || data.client_request_id !== attempt.requestId || data.round_id !== roundId) throw new Error('Unconfirmed send')
+      const message = decodeRoundMessage(data)
+      if (!message || message.client_request_id !== attempt.requestId || message.round_id !== roundId) throw new Error('Unconfirmed send')
       lifetime.attempt = null
       setState({ scopeKey, text: '', isSending: false, error: null, pendingAttempt: null })
       // Fetch the whole authorized delta, not just this receipt: other sends may precede it.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useFocusReconciliation } from './useFocusReconciliation'
 import { useRealtimeInvalidation } from './useRealtimeInvalidation'
-import { ROUND_MESSAGE_PAGE_SIZE, roundMessageFields } from '../types/roundMessage'
+import { decodeRoundMessage, getRoundMessageSequence, ROUND_MESSAGE_PAGE_SIZE, roundMessageFields } from '../types/roundMessage'
 import type { RoundMessage } from '../types/roundMessage'
 
 type MessagesState = {
@@ -29,7 +29,7 @@ export function useRoundMessages(roundId: string | undefined, userId: string | u
   useEffect(() => {
     if (!scopeKey || !roundId) return
     let active = true, syncing = false, pending = false, initialized = false
-    let cursor = 0, accessGeneration = 0
+    let cursor = 0, olderCursor: number | undefined, accessGeneration = 0
     const rows = new Map<string, RoundMessage>()
     const controllers = new Set<AbortController>()
     let current: MessagesState = { ...emptyState, scopeKey, isLoading: true }
@@ -42,6 +42,7 @@ export function useRoundMessages(roundId: string | undefined, userId: string | u
       accessGeneration++
       rows.clear()
       cursor = 0
+      olderCursor = undefined
       initialized = false
       publish({ accessDenied: true, isLoading: false, hasOlder: false, initialLatestSeq: null, error: 'Der Chat ist nicht verfügbar.' })
     }
@@ -60,10 +61,19 @@ export function useRoundMessages(roundId: string | undefined, userId: string | u
         if (direction === 'older') query = query.lt('round_seq', boundary)
         const result = await query.order('round_seq', { ascending: direction === 'newer' })
           .limit(ROUND_MESSAGE_PAGE_SIZE).abortSignal(controller.signal)
-          .overrideTypes<RoundMessage[], { merge: false }>()
+          .overrideTypes<unknown[], { merge: false }>()
         if (!active || generation !== accessGeneration) return
         if (result.error) throw result.error
-        return { batch: result.data ?? [], generation }
+        const source = result.data ?? []
+        const sequences = source.map(getRoundMessageSequence).filter((sequence): sequence is number => sequence !== null)
+        const batch = source.map(decodeRoundMessage).filter((message): message is RoundMessage => message !== null)
+        return {
+          batch,
+          generation,
+          sourceCount: source.length,
+          newestSequence: sequences.length ? Math.max(...sequences) : boundary,
+          oldestSequence: sequences.length ? Math.min(...sequences) : undefined,
+        }
       } catch (error) {
         if (!active || generation !== accessGeneration) return
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === '42501') deny()
@@ -92,17 +102,18 @@ export function useRoundMessages(roundId: string | undefined, userId: string | u
         const { batch } = result
         merge(batch)
         // Only ordered reads advance the safe cursor. A send receipt never does.
-        cursor = Math.max(cursor, ...batch.map(row => row.round_seq))
+        cursor = Math.max(cursor, result.newestSequence)
+        if (initial) olderCursor = result.oldestSequence
         initialized = true
         publish({ isLoading: false, accessDenied: false, error: null,
-          ...(initial ? { hasOlder: batch.length === ROUND_MESSAGE_PAGE_SIZE, initialLatestSeq: cursor } : {}) })
-        if (!initial && batch.length === ROUND_MESSAGE_PAGE_SIZE) pending = true
+          ...(initial ? { hasOlder: result.sourceCount === ROUND_MESSAGE_PAGE_SIZE, initialLatestSeq: cursor } : {}) })
+        if (!initial && result.sourceCount === ROUND_MESSAGE_PAGE_SIZE) pending = true
       }
       syncing = false
     }
     const loadOlder = async () => {
       if (!active || !initialized || current.isLoadingOlder || !current.hasOlder) return
-      const oldest = current.messages[0]?.round_seq
+      const oldest = olderCursor ?? current.messages[0]?.round_seq
       if (oldest === undefined) return
       publish({ isLoadingOlder: true })
       const result = await read('older', oldest)
@@ -110,7 +121,8 @@ export function useRoundMessages(roundId: string | undefined, userId: string | u
       if (result && result.generation === accessGeneration) {
         const { batch } = result
         merge(batch)
-        publish({ hasOlder: batch.length === ROUND_MESSAGE_PAGE_SIZE, error: null })
+        if (result.oldestSequence !== undefined) olderCursor = result.oldestSequence
+        publish({ hasOlder: result.sourceCount === ROUND_MESSAGE_PAGE_SIZE, error: null })
       }
       publish({ isLoadingOlder: false })
     }

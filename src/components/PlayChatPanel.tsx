@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { useRoundMessages } from '../hooks/useRoundMessages'
 import type { useSendRoundMessage } from '../hooks/useSendRoundMessage'
-import { isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
+import { formatDiceExpression, isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
 
 type PlayChatPanelProps = {
   isDesktop: boolean
@@ -125,7 +125,11 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
               <strong>{message.speaker_name_snapshot}</strong>
               <time dateTime={message.created_at}>{timeFormat.format(new Date(message.created_at))}</time>
             </div>
-            <p>{message.body}</p>
+            <p>{message.kind === 'dice_roll'
+              ? message.dice_roll
+                ? `${formatDiceExpression(message.dice_roll)} → ${message.dice_roll.total}`
+                : 'Würfelergebnis konnte nicht geladen werden.'
+              : message.body}</p>
           </li>)}
         </ol>
       </div>
