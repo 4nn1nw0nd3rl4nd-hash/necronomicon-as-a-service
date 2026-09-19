@@ -5,6 +5,7 @@ const schema=readFileSync('supabase/migrations/20260914100000_create_round_messa
 const security=readFileSync('supabase/migrations/20260914101000_secure_round_messages.sql','utf8')
 const gmSecurity=readFileSync('supabase/migrations/20260915100000_allow_game_master_active_character_chat.sql','utf8')
 const publication=readFileSync('supabase/migrations/20260914102000_enable_round_messages_realtime.sql','utf8')
+const gmNarrationSelection=readFileSync('supabase/migrations/20260919100000_preserve_game_master_narration_selection.sql','utf8')
 const code=security.replace(/--[^\n]*/g,'')
 const reader=code.slice(0,code.indexOf('create function public.send_round_message'))
 const sender=gmSecurity.replace(/--[^\n]*/g,'')
@@ -102,6 +103,42 @@ test('publication migration only adds round_messages with an existence guard and
   assert.equal((publication.match(/alter publication/g)||[]).length,1)
   assert.match(publication,/alter publication supabase_realtime add table public.round_messages/)
   assert.doesNotMatch(publication,/\b(?:drop|create|set|delete|truncate)\b/i)
+})
+test('GM narration persistence scopes NULL by round and preserves player-only lifecycle auto-selection',()=>{
+  const migration=gmNarrationSelection.replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim()
+  assert.match(migration,/create or replace function public\.recalculate_active_character\( p_round_id uuid, p_user_id uuid \)/)
+  assert.match(migration,/select id, role, active_character_id into membership_id, membership_role, current_active_character_id/)
+  assert.match(migration,/if membership_role = 'game_master' then if current_active_character_id is null then return; end if;/)
+  assert.ok(migration.indexOf("if membership_role = 'game_master'")<migration.indexOf('select pg_catalog.count(*)'))
+  assert.match(migration,/if valid_character_count = 1 then calculated_active_character_id := valid_character_ids\[1\]/)
+  assert.match(migration,/create function public\.set_active_character\( p_round_id uuid, p_character_id uuid \)/)
+  assert.match(migration,/if \(p_character_id is null or caller_id <> discovered_owner_id\) and caller_role <> 'game_master'/)
+  assert.match(migration,/where id = p_character_id and round_id = p_round_id/)
+  assert.match(migration,/revoke all on function public\.set_active_character\(uuid, uuid\) from public; revoke all on function public\.set_active_character\(uuid, uuid\) from anon; grant execute on function public\.set_active_character\(uuid, uuid\) to authenticated;/)
+  assert.doesNotMatch(migration,/\b(?:round_messages|dice_roll|policy|publication|alter table)\b/i)
+})
+
+test('selection serializes before row locks, revalidates both memberships and guards the legacy entry point',()=>{
+  const sql=gmNarrationSelection.replace(/--[^\n]*/g,'').replace(/\s+/g,' ')
+  const rpc=sql.slice(sql.indexOf('create function public.set_active_character('),sql.indexOf('revoke all on function public.set_active_character'))
+  const ordered=[
+    'order by id for share;',
+    "'round-message-sequence:' || p_round_id::text, 0)",
+    'owner_user_id = discovered_owner_id for update;',
+    'where id = p_round_id for share;',
+    'order by user_id for update;',
+    'select role into caller_role',
+    "caller_role <> 'game_master'",
+    'update public.round_memberships set active_character_id = p_character_id',
+  ].map(fragment=>{const position=rpc.indexOf(fragment);assert.ok(position>=0,fragment);return position})
+  assert.deepEqual([...ordered].sort((a,b)=>a-b),ordered)
+  assert.match(rpc,/user_id = caller_id/)
+  assert.match(rpc,/user_id = discovered_owner_id/)
+  assert.match(rpc,/deletion_pending_at is null/)
+  assert.doesNotMatch(rpc,/is_round_game_master/)
+  const legacy=sql.slice(sql.indexOf('create or replace function public.set_active_character(p_character_id uuid)'))
+  assert.match(legacy,/perform public\.set_active_character\(character_round_id, p_character_id\)/)
+  assert.doesNotMatch(legacy,/for update|for share|update public\./)
 })
 
 const privateFoundation=readFileSync('supabase/migrations/20260915110000_add_private_assignment_message_foundation.sql','utf8')

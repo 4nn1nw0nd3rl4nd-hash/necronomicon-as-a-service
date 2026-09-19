@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import PlayModeHeader from '../components/PlayModeHeader'
@@ -11,6 +11,7 @@ import { useFocusReconciliation } from '../hooks/useFocusReconciliation'
 import { useRealtimeInvalidation } from '../hooks/useRealtimeInvalidation'
 import { useRoundMessages } from '../hooks/useRoundMessages'
 import { useSendRoundMessage } from '../hooks/useSendRoundMessage'
+import { useSetActiveCharacter } from '../hooks/useSetActiveCharacter'
 import { useRoundCharacters } from '../hooks/useRoundCharacters'
 import type { RoundDetails, RoundMember } from '../types/round'
 
@@ -29,12 +30,13 @@ type RoundPlayShellProps = {
   userId: string
   membership: RoundMember | undefined
   activeCharacter: { id: string; name: string } | undefined
+  ownCharacters: Array<{ id: string; name: string }>
   isSpeakerLoading: boolean
   chat: ReturnType<typeof useRoundMessages>
-  onAccessRefresh: () => void
+  onAccessRefresh: () => void | Promise<void>
 }
 
-export function RoundPlayShell({ round, userId, membership, activeCharacter, isSpeakerLoading, chat, onAccessRefresh }: RoundPlayShellProps) {
+export function RoundPlayShell({ round, userId, membership, activeCharacter, ownCharacters, isSpeakerLoading, chat, onAccessRefresh }: RoundPlayShellProps) {
   const [activeTab, setActiveTab] = useState<PlayTab>('table')
   const [desktopChatOpen, setDesktopChatOpen] = useState(true)
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
@@ -47,23 +49,58 @@ export function RoundPlayShell({ round, userId, membership, activeCharacter, isS
   const markRead = useCallback((seq: number) => setLastSeenSeq(previous => Math.max(previous, seq)), [])
   const isGameMaster = membership?.role === 'game_master'
   const role = membership?.role
+  const {
+    isSubmitting: isSettingSpeaker,
+    error: setSpeakerError,
+    setActiveCharacter,
+    resetState: resetSpeakerError,
+  } = useSetActiveCharacter()
+  const speakerScope = `${round.id}:${userId}:${role}`
+  const speakerRequest = useRef({ generation: 0, busy: false })
   const [speakerChoice, setSpeakerChoice] = useState<{
-    role: typeof role; mode: 'character' | 'game_master' | null
-  }>({ role, mode: null })
-  const choice = speakerChoice.role === role ? speakerChoice.mode : null
-  const speakerMode = activeCharacter ? choice ?? 'character' : 'game_master'
-  // Resolve defaults only after the scoped character read; preserve character mode
-  // while A is being replaced by B. A confirmed missing character selects narration.
-  if (speakerChoice.role !== role || (isGameMaster && !isSpeakerLoading && choice !== speakerMode)) {
-    setSpeakerChoice({ role, mode: isSpeakerLoading ? null : speakerMode })
-  }
-  const expectedCharacterId = isGameMaster && speakerMode === 'game_master' ? null : activeCharacter?.id ?? null
+    scope: string; characterId: string | null
+  } | null>(null)
+  useEffect(() => {
+    const request = speakerRequest.current
+    return () => { request.generation++; request.busy = false }
+  }, [speakerScope])
+  if (speakerChoice && speakerChoice.scope !== speakerScope) setSpeakerChoice(null)
+  const pendingChoice = speakerChoice?.scope === speakerScope ? speakerChoice : null
+  const selectedCharacterId = pendingChoice
+    ? pendingChoice.characterId : membership?.active_character_id ?? null
+  const selectedCharacter = ownCharacters.find(character => character.id === selectedCharacterId)
+  const expectedCharacterId = isGameMaster ? selectedCharacterId : activeCharacter?.id ?? null
+  const isChoosingSpeaker = Boolean(pendingChoice) || isSettingSpeaker
   const composer = useSendRoundMessage(round.id, userId, expectedCharacterId, chat.reload, onAccessRefresh)
   const disabledReason = chat.accessDenied ? 'Du hast keinen Zugriff auf diesen Chat.'
     : round.locked_at ? 'Diese Runde ist gesperrt. Nachrichten können nicht gesendet werden.'
     : round.status === 'archived' ? 'Archivierte Runden können nicht mehr beschrieben werden.'
-    : !membership || chat.isLoading || isSpeakerLoading ? 'Deine Schreibberechtigung wird geprüft …'
-    : !isGameMaster && !activeCharacter ? 'Wähle zuerst einen aktiven Charakter.' : null
+    : !membership || chat.isLoading || isSpeakerLoading || isChoosingSpeaker
+      ? 'Deine Schreibberechtigung wird geprüft …'
+      : isGameMaster && selectedCharacterId && !selectedCharacter ? 'Der gewählte Charakter ist nicht verfügbar.'
+      : !isGameMaster && !activeCharacter ? 'Wähle zuerst einen aktiven Charakter.' : null
+
+  const changeSpeaker = async (characterId: string | null) => {
+    if (!isGameMaster || isSpeakerLoading || speakerRequest.current.busy
+      || characterId === (membership?.active_character_id ?? null)) return
+    if (characterId !== null && !ownCharacters.some(character => character.id === characterId)) return
+    const request = ++speakerRequest.current.generation
+    speakerRequest.current.busy = true
+    resetSpeakerError()
+    setSpeakerChoice({ scope: speakerScope, characterId })
+    try {
+      const wasSet = await setActiveCharacter(round.id, characterId)
+      if (request !== speakerRequest.current.generation) return
+      if (wasSet) await onAccessRefresh()
+    } finally {
+      if (request === speakerRequest.current.generation) {
+        speakerRequest.current.busy = false
+        // Success, divergent canonical state, refresh failure and RPC failure
+        // all release the pending choice. Never restore a captured server mode.
+        setSpeakerChoice(null)
+      }
+    }
+  }
 
   return (
     <section className="play-page" aria-label="Spielmodus">
@@ -88,12 +125,13 @@ export function RoundPlayShell({ round, userId, membership, activeCharacter, isS
           chat={chat}
           composer={composer}
           disabledReason={disabledReason}
-          speakerName={isGameMaster && speakerMode === 'game_master' ? 'Spielleitung' : activeCharacter?.name ?? null}
+          speakerName={isGameMaster ? selectedCharacterId === null ? 'Spielleitung' : selectedCharacter?.name ?? null : activeCharacter?.name ?? null}
           speakerSelection={isGameMaster ? {
-            mode: speakerMode,
-            characterName: activeCharacter?.name,
-            disabled: isSpeakerLoading,
-            onChange: mode => setSpeakerChoice({ role, mode }),
+            characterId: selectedCharacterId,
+            characters: ownCharacters,
+            error: setSpeakerError,
+            disabled: isSpeakerLoading || isChoosingSpeaker,
+            onChange: changeSpeaker,
           } : undefined}
           unreadCount={unreadCount}
           onRead={markRead}
@@ -119,20 +157,22 @@ function RoundPlayPage() {
   const round = isMembershipMissing ? null : loadedRound
   const membership = members.find(member => member.user_id === user?.id)
   const characterList = useRoundCharacters(
-    membership?.active_character_id ? round?.id : undefined,
+    membership?.role === 'game_master' || membership?.active_character_id ? round?.id : undefined,
     `${user?.id}:${membership?.role}`,
-    membership?.active_character_id ?? undefined,
+    membership?.role === 'game_master' ? undefined : membership?.active_character_id ?? undefined,
+    user?.id,
   )
-  const activeCharacter = characterList.characters.find(character =>
-    character.id === membership?.active_character_id && character.owner_user_id === user?.id && character.round_id === round?.id)
+  const ownCharacters = characterList.characters.filter(character =>
+    character.owner_user_id === user?.id && character.round_id === round?.id)
+  const activeCharacter = ownCharacters.find(character => character.id === membership?.active_character_id)
   const chat = useRoundMessages(round?.id, user?.id)
   const reloadCharacters = characterList.reload
   const reloadMessages = chat.reload
   const reloadAccess = useCallback(() => {
     reload()
-    reloadMembers()
     reloadCharacters()
     reloadMessages()
+    return reloadMembers()
   }, [reload, reloadMembers, reloadCharacters, reloadMessages])
   const schedule = useFocusReconciliation(user?.id && roundId ? `${user.id}:${roundId}` : undefined, reloadAccess)
   // Keep access reconciliation alive while content is unavailable, just as on
@@ -144,12 +184,14 @@ function RoundPlayPage() {
   // Round/access and current speaker changes reconcile via the existing hooks.
   useRealtimeInvalidation({ scopeKey, table: 'rounds', filter: `id=eq.${roundId}`, onInvalidate: schedule })
   useRealtimeInvalidation({ scopeKey, table: 'round_memberships', filter: `round_id=eq.${roundId}`, includeInserts: true, onInvalidate: schedule })
-  useRealtimeInvalidation({ scopeKey: membership?.active_character_id ? scopeKey : undefined,
-    table: 'characters', filter: `id=eq.${membership?.active_character_id}`, onInvalidate: schedule })
+  useRealtimeInvalidation({ scopeKey: membership?.role === 'game_master' || membership?.active_character_id ? scopeKey : undefined,
+    table: 'characters', filter: membership?.role === 'game_master'
+      ? `owner_user_id=eq.${user?.id}` : `id=eq.${membership?.active_character_id}`,
+    includeInserts: membership?.role === 'game_master', onInvalidate: schedule })
 
   if (!isLoading && !error && round && user) {
     return <RoundPlayShell key={`${user.id}:${round.id}`} round={round} userId={user.id}
-      membership={membership} activeCharacter={activeCharacter} isSpeakerLoading={characterList.isLoading}
+      membership={membership} activeCharacter={activeCharacter} ownCharacters={ownCharacters} isSpeakerLoading={characterList.isLoading}
       chat={chat} onAccessRefresh={reloadAccess} />
   }
 

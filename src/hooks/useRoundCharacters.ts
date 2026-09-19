@@ -5,6 +5,7 @@ import type { RoundCharacterSummary } from '../types/character'
 type RoundCharactersState = {
   roundId: string | undefined
   accessScope: string | undefined
+  ownerUserId: string | undefined
   characterId: string | undefined
   characters: RoundCharacterSummary[]
   isLoading: boolean
@@ -15,6 +16,7 @@ const initialState: RoundCharactersState = {
   roundId: undefined,
   accessScope: undefined,
   characterId: undefined,
+  ownerUserId: undefined,
   characters: [],
   isLoading: false,
   error: null,
@@ -31,6 +33,7 @@ export function useRoundCharacters(
   roundId: string | undefined,
   accessScope?: string,
   characterId?: string,
+  ownerUserId?: string,
 ) {
   const [state, setState] = useState<RoundCharactersState>(initialState)
   const reloadRef = useRef<(() => void) | null>(null)
@@ -58,6 +61,7 @@ export function useRoundCharacters(
             roundId,
             accessScope,
             characterId,
+            ownerUserId,
             characters: [],
             isLoading: true,
             error: null,
@@ -78,6 +82,7 @@ export function useRoundCharacters(
             .eq('round_id', roundId)
             .is('deleted_at', null)
             .order('name', { ascending: true })
+          if (ownerUserId) query.eq('owner_user_id', ownerUserId)
           if (characterId) query.eq('id', characterId)
           const { data, error } = await query
             .abortSignal(controller.signal)
@@ -89,6 +94,7 @@ export function useRoundCharacters(
             roundId,
             accessScope,
             characterId,
+            ownerUserId,
             characters: data ?? [],
             isLoading: false,
             error: error?.code === '42501' ? 'Die Charaktere sind nicht verfügbar.' : null,
@@ -101,6 +107,7 @@ export function useRoundCharacters(
               roundId,
               accessScope,
               characterId,
+              ownerUserId,
               characters: [],
               isLoading: false,
               error: 'Die Charaktere konnten nicht geladen werden.',
@@ -120,7 +127,7 @@ export function useRoundCharacters(
       reloadRef.current = null
       controller?.abort()
     }
-  }, [hasValidRoundId, roundId, accessScope, characterId])
+  }, [hasValidRoundId, roundId, accessScope, characterId, ownerUserId])
 
   const reload = useCallback(() => {
     reloadRef.current?.()
@@ -135,7 +142,7 @@ export function useRoundCharacters(
     }
   }
 
-  if (state.roundId !== roundId || state.accessScope !== accessScope || state.characterId !== characterId) {
+  if (state.roundId !== roundId || state.accessScope !== accessScope || state.characterId !== characterId || state.ownerUserId !== ownerUserId) {
     return {
       characters: [] as RoundCharacterSummary[],
       isLoading: true,

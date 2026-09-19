@@ -198,7 +198,7 @@ function RoundCharactersSection({
 
   const handleSetActiveCharacter = async (characterId: string) => {
     resetSetActiveCharacterState()
-    const wasSet = await setActiveCharacter(characterId)
+    const wasSet = await setActiveCharacter(roundId, characterId)
 
     if (wasSet) {
       onMembershipsReload()

@@ -17,12 +17,12 @@ export function useSetActiveCharacter() {
   }, [])
 
   const setActiveCharacter = useCallback(
-    async (characterId: string): Promise<boolean> => {
+    async (roundId: string, characterId: string | null): Promise<boolean> => {
       if (isRequestInFlightRef.current) {
         return false
       }
 
-      if (!characterId) {
+      if (!roundId) {
         setError(setActiveCharacterError)
         return false
       }
@@ -36,6 +36,7 @@ export function useSetActiveCharacter() {
         const { error: requestError } = await supabase.rpc(
           'set_active_character',
           {
+            p_round_id: roundId,
             p_character_id: characterId,
           },
         )

@@ -2039,7 +2039,7 @@ function shellSetup(overrides={}) {
     '../components/PlayChatPanel':{default:'PlayChatPanel'},'../hooks/useSendRoundMessage':{useSendRoundMessage:emptyComposer},
   })
   const Shell=h.load('src/pages/RoundPlayPage.tsx').RoundPlayShell
-  let props={round:roundData().round,userId:user,membership:member(),activeCharacter:{id:other,name:'Astrid'},isSpeakerLoading:false,chat:emptyChat(),onAccessRefresh(){},...overrides}
+  let props={round:roundData().round,userId:user,membership:member(),activeCharacter:{id:other,name:'Astrid'},ownCharacters:[{id:other,name:'Astrid'}],isSpeakerLoading:false,chat:emptyChat(),onAccessRefresh(){},...overrides}
   return {h,render:changes=>{props={...props,...changes};return h.render(Shell,[props])},setDesktop:value=>{desktop=value}}
 }
 test('composer gating covers missing/invalid active character, GM, archive, lock, and denied chat access',()=>{
@@ -2047,7 +2047,7 @@ test('composer gating covers missing/invalid active character, GM, archive, lock
   const panel=tree=>nodes(tree).find(n=>n.type==='PlayChatPanel').props
   assert.equal(panel(f.render()).disabledReason,null)
   assert.match(panel(f.render({activeCharacter:undefined})).disabledReason,/aktiven Charakter/)
-  assert.equal(panel(f.render({membership:member(user,'game_master')})).disabledReason,null)
+  assert.equal(panel(f.render({membership:{...member(user,'game_master'),active_character_id:null}})).disabledReason,null)
   assert.equal(panel(f.render()).speakerName,'Spielleitung')
   assert.match(panel(f.render({round:roundData('game_master',{status:'archived'}).round})).disabledReason,/Archivierte/)
   assert.match(panel(f.render({round:roundData('game_master',{locked_at:'now'}).round})).disabledReason,/gesperrt/)
@@ -2191,51 +2191,83 @@ function gmSenderSetup(changes={}) {
   })
   const Shell=h.load('src/pages/RoundPlayPage.tsx').RoundPlayShell
   let props={round:roundData('game_master').round,userId:user,membership:{...member(user,'game_master'),active_character_id:other},
-    activeCharacter:{id:other,name:'Elin'},isSpeakerLoading:false,chat:emptyChat(),onAccessRefresh(){},...changes}
+    activeCharacter:{id:other,name:'Elin'},ownCharacters:[{id:other,name:'Elin'},{id:'B',name:'Birgit'}],
+    isSpeakerLoading:false,chat:emptyChat(),onAccessRefresh(){},...changes}
   const render=next=>{props={...props,...next};return nodes(h.render(Shell,[props])).find(n=>n.type==='PlayChatPanel').props}
   render()
   return {b,h,render}
 }
+function canonicalSpeaker(f,id) {
+  return f.render({membership:{...member(user,'game_master'),active_character_id:id},
+    activeCharacter:id ? {id,name:id===other?'Elin':'Birgit'} : undefined})
+}
+async function chooseSpeaker(f,id) {
+  const operation=f.render().speakerSelection.onChange(id)
+  const request=f.b.requests.at(-1)
+  assert.equal(request.rpc,'set_active_character')
+  assert.deepEqual({...request.args},{p_round_id:round,p_character_id:id})
+  request.resolve({data:null,error:null})
+  canonicalSpeaker(f,id)
+  await operation
+  return f.render()
+}
+test('active-character writes are round-scoped for both character selection and GM narration',async()=>{
+  const b=backend(),h=harness(b.api),hook=h.load('src/hooks/useSetActiveCharacter.ts').useSetActiveCharacter
+  h.render(hook,[])
+  let pending=h.render().setActiveCharacter(round,other)
+  assert.equal(b.requests[0].rpc,'set_active_character')
+  assert.deepEqual({...b.requests[0].args},{p_round_id:round,p_character_id:other})
+  b.requests[0].resolve({data:null,error:null});assert.equal(await pending,true)
+  h.render()
+  pending=h.render().setActiveCharacter(round,null)
+  assert.deepEqual({...b.requests[1].args},{p_round_id:round,p_character_id:null})
+  b.requests[1].resolve({data:null,error:null});assert.equal(await pending,true)
+  h.render()
+  assert.equal(await h.render().setActiveCharacter('',other),false)
+  assert.equal(b.requests.length,2)
+  h.cleanup()
+})
 async function confirmSend(f,pending) {
   const request=f.b.requests.at(-1)
   request.resolve({data:chatMessage(1,{client_request_id:request.args.p_client_request_id}),error:null})
   assert.equal(await pending,true)
 }
-test('GM sender defaults to active character, switches both ways and sends exactly the existing four RPC parameters',async()=>{
+test('GM sender persists both directions and sends exactly the existing four chat RPC parameters',async()=>{
   const f=gmSenderSetup()
-  assert.equal(f.render().speakerSelection.mode,'character');assert.equal(f.render().speakerName,'Elin')
-  for(const [mode,id] of [['character',other],['game_master',null],['character',other]]) {
-    f.render().speakerSelection.onChange(mode)
+  assert.equal(f.render().speakerSelection.characterId,other);assert.equal(f.render().speakerName,'Elin')
+  for(const id of [other,null,other]) {
+    if(f.render().speakerSelection.characterId!==id) await chooseSpeaker(f,id)
     f.render().composer.setText('Gleicher Text')
     const pending=f.render().composer.send(),request=f.b.requests.at(-1)
     assert.deepEqual(Object.keys(request.args).sort(),['p_body','p_client_request_id','p_expected_active_character_id','p_round_id'])
     assert.equal(request.args.p_expected_active_character_id,id)
     await confirmSend(f,pending)
   }
-  assert.equal(new Set(f.b.requests.map(r=>r.args.p_client_request_id)).size,3)
+  assert.equal(new Set(f.b.requests.filter(r=>r.rpc==='send_round_message').map(r=>r.args.p_client_request_id)).size,3)
   f.h.cleanup()
 })
-test('GM sender waits for initial active-character resolution, preserves mode through A to B loading and adopts rename',()=>{
-  const f=gmSenderSetup({activeCharacter:undefined,isSpeakerLoading:true})
+test('GM sender waits for character resolution and adopts canonical ID changes and renames',()=>{
+  const f=gmSenderSetup({activeCharacter:undefined,ownCharacters:[],isSpeakerLoading:true})
   assert.ok(f.render().disabledReason)
-  let panel=f.render({activeCharacter:{id:other,name:'Elin'},isSpeakerLoading:false})
-  assert.equal(panel.speakerSelection.mode,'character')
+  let panel=f.render({activeCharacter:{id:other,name:'Elin'},ownCharacters:[{id:other,name:'Elin'}],isSpeakerLoading:false})
+  assert.equal(panel.speakerSelection.characterId,other)
   panel=f.render({activeCharacter:undefined,isSpeakerLoading:true})
   assert.ok(panel.disabledReason)
-  panel=f.render({activeCharacter:{id:'B',name:'Birgit'},isSpeakerLoading:false})
-  assert.equal(panel.speakerSelection.mode,'character');assert.equal(panel.speakerName,'Birgit')
-  panel=f.render({activeCharacter:{id:'B',name:'Birgit Neu'}})
+  panel=f.render({activeCharacter:{id:'B',name:'Birgit'},ownCharacters:[{id:'B',name:'Birgit'}],isSpeakerLoading:false,
+    membership:{...member(user,'game_master'),active_character_id:'B'}})
+  assert.equal(panel.speakerSelection.characterId,'B');assert.equal(panel.speakerName,'Birgit')
+  panel=f.render({ownCharacters:[{id:'B',name:'Birgit Neu'}]})
   assert.equal(panel.speakerName,'Birgit Neu')
-  panel=f.render({activeCharacter:undefined,membership:{...member(user,'game_master'),active_character_id:null}})
-  assert.equal(panel.speakerSelection.mode,'game_master');assert.equal(panel.disabledReason,null)
-  panel=f.render({activeCharacter:{id:'B',name:'Birgit Neu'},membership:member(user,'game_master')})
-  assert.equal(panel.speakerSelection.mode,'game_master','automatic fallback stays selected when a character reappears')
+  panel=canonicalSpeaker(f,null)
+  assert.equal(panel.speakerSelection.characterId,null);assert.equal(panel.disabledReason,null)
+  panel=canonicalSpeaker(f,'B')
+  assert.equal(panel.speakerSelection.characterId,'B')
   f.h.cleanup()
 })
-test('GM without active character narrates; players have no selection and use only their active character',async()=>{
-  const f=gmSenderSetup({activeCharacter:undefined,membership:{...member(user,'game_master'),active_character_id:null}})
-  assert.equal(f.render().speakerSelection.characterName,undefined)
-  assert.equal(f.render().speakerSelection.mode,'game_master')
+test('GM without characters narrates; players have no selection and use only their active character',async()=>{
+  const f=gmSenderSetup({ownCharacters:[],activeCharacter:undefined,membership:{...member(user,'game_master'),active_character_id:null}})
+  assert.equal(f.render().speakerSelection.characters.length,0)
+  assert.equal(f.render().speakerSelection.characterId,null)
   f.render().composer.setText('Erzählung');await confirmSend(f,f.render().composer.send())
   assert.equal(f.b.requests[0].args.p_expected_active_character_id,null)
   let panel=f.render({membership:member(),activeCharacter:{id:other,name:'Sven'}})
@@ -2243,9 +2275,97 @@ test('GM without active character narrates; players have no selection and use on
   panel.composer.setText('Spielertext');await confirmSend(f,f.render().composer.send())
   assert.equal(f.b.requests[1].args.p_expected_active_character_id,other)
   panel=f.render({activeCharacter:undefined});assert.match(panel.disabledReason,/aktiven Charakter/)
-  panel=f.render({membership:member(user,'game_master'),activeCharacter:{id:other,name:'Sven'}})
-  assert.equal(panel.speakerSelection.mode,'character','regaining GM role initializes its mode afresh')
   f.h.cleanup()
+})
+test('GM narration round trip retains all own character options through canonical NULL and remount',async()=>{
+  const f=gmSenderSetup()
+  let panel=await chooseSpeaker(f,null)
+  assert.equal(panel.speakerSelection.characterId,null)
+  assert.equal(panel.speakerName,'Spielleitung')
+  assert.equal(panel.speakerSelection.characters.length,2)
+  panel=await chooseSpeaker(f,'B')
+  assert.equal(panel.speakerSelection.characterId,'B')
+  assert.equal(panel.speakerName,'Birgit')
+  f.h.cleanup()
+  for(const id of [null,other]) {
+    const reloaded=gmSenderSetup({membership:{...member(user,'game_master'),active_character_id:id},
+      activeCharacter:id?{id,name:'Elin'}:undefined})
+    assert.equal(reloaded.render().speakerSelection.characterId,id)
+    assert.equal(reloaded.render().speakerSelection.characters.length,2)
+    assert.equal(reloaded.b.requests.length,0,'mount must never repair/write server selection')
+    reloaded.h.cleanup()
+  }
+})
+for(const [initial,requested,server] of [[other,null,'B'],[null,other,null]]) {
+  test(`GM pending ${requested} releases to divergent canonical ${server} after request AND refetch`,async()=>{
+    let finishRefresh,refreshes=0
+    const f=gmSenderSetup({membership:{...member(user,'game_master'),active_character_id:initial},
+      onAccessRefresh(){refreshes++;return new Promise(resolve=>{finishRefresh=resolve})}})
+    const pending=f.render().speakerSelection.onChange(requested)
+    assert.equal(f.render().speakerSelection.disabled,true)
+    await f.render().speakerSelection.onChange(server)
+    assert.equal(f.b.requests.length,1,'no parallel selection during write')
+    f.b.requests[0].resolve({data:null,error:null});await settle()
+    assert.equal(refreshes,1)
+    assert.equal(f.render().speakerSelection.disabled,true,'pending also spans canonical refetch')
+    canonicalSpeaker(f,server)
+    finishRefresh();await pending
+    assert.equal(f.render().speakerSelection.characterId,server)
+    assert.equal(f.render().speakerSelection.disabled,false)
+    canonicalSpeaker(f,initial)
+    assert.equal(f.render().speakerSelection.characterId,initial,'later realtime/focus state stays canonical')
+    f.h.cleanup()
+  })
+}
+test('GM RPC failure releases pending to latest server state instead of captured mode',async()=>{
+  const f=gmSenderSetup()
+  const pending=f.render().speakerSelection.onChange(null)
+  canonicalSpeaker(f,'B')
+  f.b.requests[0].resolve({data:null,error:{message:'failed'}});await pending
+  let panel=f.render()
+  assert.equal(panel.speakerSelection.characterId,'B')
+  assert.equal(panel.speakerSelection.disabled,false)
+  assert.match(panel.speakerSelection.error,/konnte nicht/)
+  assert.equal(panel.disabledReason,null,'failed selection does not permanently block the canonical speaker')
+  panel=await chooseSpeaker(f,null)
+  assert.equal(panel.disabledReason,null)
+  assert.equal(panel.speakerSelection.characterId,null)
+  f.h.cleanup()
+})
+test('GM pending completion after role loss or unmount cannot refresh or restore selection',async()=>{
+  for(const unmount of [false,true]) {
+    let refreshes=0
+    const f=gmSenderSetup({onAccessRefresh(){refreshes++}})
+    const pending=f.render().speakerSelection.onChange(null)
+    if(unmount) f.h.cleanup()
+    else f.render({membership:member()})
+    f.b.requests[0].resolve({data:null,error:null});await pending
+    assert.equal(refreshes,0)
+    if(!unmount) {
+      assert.equal(f.render().speakerSelection,undefined)
+      canonicalSpeaker(f,other)
+      assert.equal(f.render().speakerSelection.characterId,other)
+      f.h.cleanup()
+    }
+  }
+})
+test('GM speaker initialization is read-only for either async load order and keeps player behavior',()=>{
+  const charactersFirst=gmSenderSetup({membership:undefined,isSpeakerLoading:true})
+  assert.equal(charactersFirst.render().speakerSelection,undefined)
+  let panel=charactersFirst.render({membership:{...member(user,'game_master'),active_character_id:null},isSpeakerLoading:false})
+  assert.equal(panel.speakerSelection.characterId,null)
+  assert.equal(panel.speakerSelection.characters.length,2)
+  assert.equal(charactersFirst.b.requests.length,0)
+  charactersFirst.h.cleanup()
+  const membershipFirst=gmSenderSetup({activeCharacter:undefined,ownCharacters:[],isSpeakerLoading:true})
+  assert.equal(membershipFirst.b.requests.length,0)
+  panel=membershipFirst.render({activeCharacter:{id:other,name:'Elin'},ownCharacters:[{id:other,name:'Elin'}],isSpeakerLoading:false})
+  assert.equal(panel.speakerSelection.characterId,other)
+  panel=membershipFirst.render({membership:{...member(user,'player'),active_character_id:other}})
+  assert.equal(panel.speakerSelection,undefined)
+  assert.equal(panel.speakerName,'Elin')
+  assert.equal(membershipFirst.b.requests.length,0)
+  membershipFirst.h.cleanup()
 })
 for(const [firstId,nextId] of [[other,null],[null,other],[other,'B']]) {
   test(`sender identity ${firstId} to ${nextId}: new intent gets a fresh ID; explicit retry retains old body and identity`,async()=>{
@@ -2276,10 +2396,10 @@ test('sender mode round trip is a new intent, but unchanged rerenders and rename
   const retry=f.render().composer.send()
   assert.deepEqual(f.b.requests[1].args,f.b.requests[0].args)
   f.b.requests[1].reject(Error('timeout'));await retry
-  f.render().speakerSelection.onChange('game_master');f.render()
-  f.render().speakerSelection.onChange('character');f.render()
+  await chooseSpeaker(f,null)
+  await chooseSpeaker(f,other)
   const fresh=f.render().composer.send()
-  assert.notEqual(f.b.requests[2].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  assert.notEqual(f.b.requests.at(-1).args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
   await confirmSend(f,fresh);f.h.cleanup()
 })
 for(const desktop of [true,false]) {
@@ -2290,16 +2410,16 @@ for(const desktop of [true,false]) {
     const name='Elin '.repeat(40)
     let props={isDesktop:desktop,isOpen:true,onClose(){},chat:emptyChat(),
       composer:{...emptyComposer(),text:'Text',hasDifferentPendingAttempt:true,retry:()=>{retries++;return false},send:()=>{sends++;return false}},
-      disabledReason:null,speakerName:name,speakerSelection:{mode:'character',characterName:name,disabled:false,onChange:mode=>{selected=mode}},unreadCount:0,onRead(){}}
+      disabledReason:null,speakerName:name,speakerSelection:{characterId:other,characters:[{id:other,name}],disabled:false,onChange:id=>{selected=id}},unreadCount:0,onRead(){}}
     let tree=h.render(Panel,[props]),select=nodes(tree).find(n=>n.type==='select')
-    assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),['character','game_master'])
+    assert.deepEqual(nodes(select).filter(n=>n.type==='option').map(n=>n.props.value),[other,''])
     assert.equal(select.props.title,name);assert.equal(select.props.disabled,false)
     assert.equal(select.props.onMouseDown,undefined);assert.equal(select.props.onPointerDown,undefined)
-    select.props.onChange({target:{value:'game_master'}});assert.equal(selected,'game_master')
+    select.props.onChange({target:{value:''}});assert.equal(selected,null)
     nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Vorherigen Sendeversuch wiederholen').props.onClick()
     assert.equal(retries,1);assert.equal(sends,0)
-    tree=h.render(Panel,[{...props,speakerSelection:{...props.speakerSelection,mode:'game_master',characterName:undefined}}])
-    assert.deepEqual(nodes(tree).filter(n=>n.type==='option').map(n=>n.props.value),['game_master'])
+    tree=h.render(Panel,[{...props,speakerSelection:{...props.speakerSelection,characterId:null,characters:[]}}])
+    assert.deepEqual(nodes(tree).filter(n=>n.type==='option').map(n=>n.props.value),[''])
     tree=h.render(Panel,[{...props,speakerSelection:undefined}])
     assert.equal(nodes(tree).filter(n=>n.type==='select').length,0)
     assert.match(textOf(tree),/Schreiben als Elin/);h.cleanup()
@@ -2321,7 +2441,7 @@ test('active-character query adds a server ID filter and drops obsolete records/
   h.render(hook,[round,`${user}:player`,'B']);assert.equal(h.render().characters.length,0)
   h.cleanup()
 })
-test('GM play page resolves only own active ID, reconciles rename and membership changes through existing subscriptions',async()=>{
+test('GM play page loads own choices independently of active ID and reconciles using the existing character subscription',async()=>{
   const b=backend(),clock=browserClock()
   const h=harness(b.api,clock,{
     'react-router-dom':{useParams:()=>({roundId:round}),Link:'Link'},'../auth/useAuth':{useAuth:()=>({user:{id:user}})},
@@ -2331,45 +2451,65 @@ test('GM play page resolves only own active ID, reconciles rename and membership
   const Page=h.load('src/pages/RoundPlayPage.tsx').default
   h.render(Page,[])
   b.requests[0].resolve({data:roundData('game_master'),error:null})
-  b.requests[1].resolve({data:[{...member(user,'game_master'),active_character_id:other}],error:null});await tick()
+  b.requests[1].resolve({data:[{...member(user,'game_master'),active_character_id:null}],error:null});await tick()
   assert.equal(h.render().props.isSpeakerLoading,true)
-  assert.equal(b.requests[2].table,'characters');assert.equal(b.requests[2].id,other)
-  b.requests[2].resolve({data:[{...character(other),name:'Elin'}],error:null});await tick()
-  assert.equal(h.render().props.activeCharacter.name,'Elin')
-  const channel=b.channels.find(c=>c.config.table==='characters')
-  assert.equal(channel.config.filter,`id=eq.${other}`)
-  channel.cb();clock.advance()
-  const refresh=b.requests.at(-1);assert.equal(refresh.id,other)
-  refresh.resolve({data:[{...character(other),name:'Elin Neu'}],error:null});await tick()
-  assert.equal(h.render().props.activeCharacter.name,'Elin Neu')
-  const membershipRequest=b.requests.findLast(r=>r.table==='round_memberships'&&!r.user_id)
-  membershipRequest.resolve({data:[{...member(user,'game_master'),active_character_id:round}],error:null});await tick()
+  assert.equal(b.requests[2].table,'characters');assert.equal(b.requests[2].id,undefined)
+  assert.equal(b.requests[2].owner_user_id,user)
+  b.requests[2].resolve({data:[{...character(other),name:'Elin'},character('foreign','someone-else')],error:null});await tick()
   assert.equal(h.render().props.activeCharacter,undefined)
-  assert.equal(b.requests.at(-1).id,round)
-  b.requests.at(-1).resolve({data:[character(round,'someone-else')],error:null});await tick()
-  assert.equal(h.render().props.activeCharacter,undefined,'GM read access to foreign characters never makes them selectable')
+  assert.deepEqual(Array.from(h.render().props.ownCharacters,c=>c.id),[other])
+  const channel=b.channels.find(c=>c.config.table==='characters')
+  assert.equal(channel.config.filter,`owner_user_id=eq.${user}`)
+  channel.cb();clock.advance()
+  const refresh=b.requests.findLast(r=>r.table==='characters')
+  assert.equal(refresh.owner_user_id,user)
+  refresh.resolve({data:[{...character(other),name:'Elin Neu'}],error:null});await tick()
+  assert.equal(h.render().props.ownCharacters[0].name,'Elin Neu')
+  const membershipRequest=b.requests.findLast(r=>r.table==='round_memberships'&&!r.user_id)
+  membershipRequest.resolve({data:[{...member(user,'game_master'),active_character_id:other}],error:null});await tick()
+  assert.equal(h.render().props.activeCharacter.id,other)
+  assert.equal(b.requests.filter(r=>r.table==='characters').length,2,'active ID switch reuses the same own-character list')
+  assert.equal(b.requests.filter(r=>r.rpc).length,0,'mount and reconciliation remain read-only')
   h.cleanup()
 })
 
-test('GM mode change during successful send leaves the request untouched and applies only to the next message',async()=>{
+test('GM selection during successful send leaves its captured request untouched',async()=>{
   const f=gmSenderSetup()
   f.render().composer.setText('Erste Nachricht')
   const first=f.render().composer.send(),original={...f.b.requests[0].args}
-  f.render().speakerSelection.onChange('game_master')
+  await chooseSpeaker(f,null)
   assert.equal(f.render().composer.isSending,true)
   assert.equal(await f.render().composer.send(),false)
   assert.deepEqual({...f.b.requests[0].args},original)
-  await confirmSend(f,first)
-  assert.equal(f.render().speakerSelection.mode,'game_master')
-  assert.equal(f.render().composer.text,'')
+  f.b.requests[0].resolve({data:chatMessage(1,{client_request_id:original.p_client_request_id}),error:null})
+  assert.equal(await first,true)
+  assert.equal(f.render().speakerSelection.characterId,null)
   f.render().composer.setText('Zweite Nachricht')
   await confirmSend(f,f.render().composer.send())
-  assert.equal(f.b.requests[1].args.p_expected_active_character_id,null)
-  f.render().speakerSelection.onChange('character')
-  f.render({activeCharacter:{id:'B',name:'Birgit'},membership:{...member(user,'game_master'),active_character_id:'B'}})
+  assert.equal(f.b.requests.at(-1).args.p_expected_active_character_id,null)
+  await chooseSpeaker(f,'B')
   f.render().composer.setText('Dritte Nachricht')
   await confirmSend(f,f.render().composer.send())
-  assert.equal(f.b.requests[2].args.p_expected_active_character_id,'B')
-  assert.equal(new Set(f.b.requests.map(r=>r.args.p_client_request_id)).size,3)
+  assert.equal(f.b.requests.at(-1).args.p_expected_active_character_id,'B')
+  assert.equal(new Set(f.b.requests.filter(r=>r.rpc==='send_round_message').map(r=>r.args.p_client_request_id)).size,3)
   f.h.cleanup()
+})
+
+test('membership reload completion waits for its trailing fetch and settles on error/unmount',async()=>{
+  for(const outcome of ['success','error','unmount']) {
+    const b=backend(),h=harness(b.api),hook=h.load('src/hooks/useRoundMembers.ts').useRoundMembers
+    h.render(hook,[round,user])
+    let finished=false
+    const pending=h.render().reload().then(()=>{finished=true})
+    b.requests[0].resolve({data:[member()],error:null});await settle()
+    assert.equal(finished,false,'old in-flight membership response cannot finish a post-write refetch')
+    assert.equal(b.requests.length,2)
+    if(outcome==='unmount') h.cleanup()
+    else b.requests[1].resolve({data:outcome==='success'?[{...member(),active_character_id:null}]:null,
+      error:outcome==='error'?{message:'offline'}:null})
+    await pending
+    assert.equal(finished,true)
+    if(outcome==='success') assert.equal(h.render().members[0].active_character_id,null)
+    h.cleanup()
+  }
 })

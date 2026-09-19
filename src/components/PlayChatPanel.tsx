@@ -12,10 +12,11 @@ type PlayChatPanelProps = {
   disabledReason: string | null
   speakerName: string | null
   speakerSelection?: {
-    mode: 'character' | 'game_master'
-    characterName?: string
+    characterId: string | null
+    characters: Array<{ id: string; name: string }>
+    error?: string | null
     disabled: boolean
-    onChange: (mode: 'character' | 'game_master') => void
+    onChange: (characterId: string | null) => void
   }
   unreadCount: number
   onRead: (seq: number) => void
@@ -139,16 +140,17 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
       <form className="play-chat-composer" onSubmit={event => { event.preventDefault(); send() }}>
         {speakerSelection && <div className="play-chat-speaker">
           <label htmlFor="play-chat-speaker-mode">Schreiben als:</label>
-          <select id="play-chat-speaker-mode" value={speakerSelection.mode}
+          <select id="play-chat-speaker-mode" value={speakerSelection.characterId ?? ''}
             disabled={speakerSelection.disabled} title={speakerName ?? undefined}
             onChange={event => {
-              if (event.target.value === 'character' || event.target.value === 'game_master') {
-                speakerSelection.onChange(event.target.value)
+              if (event.target.value === '' || speakerSelection.characters.some(character => character.id === event.target.value)) {
+                speakerSelection.onChange(event.target.value || null)
               }
             }}>
-            {speakerSelection.characterName && <option value="character">{speakerSelection.characterName}</option>}
-            <option value="game_master">Spielleitung</option>
+            {speakerSelection.characters.map(character => <option key={character.id} value={character.id}>{character.name}</option>)}
+            <option value="">Spielleitung</option>
           </select>
+          {speakerSelection.error && <p role="alert">{speakerSelection.error}</p>}
         </div>}
         <label htmlFor="play-chat-message">{speakerSelection ? 'Nachricht' : speakerName ? `Schreiben als ${speakerName}` : 'Nachricht'}</label>
         <textarea ref={inputRef} id="play-chat-message" rows={3} value={composer.text}

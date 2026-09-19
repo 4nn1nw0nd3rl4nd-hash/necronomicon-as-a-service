@@ -30,7 +30,7 @@ export function useRoundMembers(
   userId: string | undefined,
 ) {
   const [state, setState] = useState<RoundMembersState>(initialState)
-  const reloadRef = useRef<(() => void) | null>(null)
+  const reloadRef = useRef<(() => Promise<void>) | null>(null)
   const hasValidRoundId = isValidRoundId(roundId)
 
   useEffect(() => {
@@ -43,6 +43,8 @@ export function useRoundMembers(
     let pending = false
     let hasLoaded = false
     let controller: AbortController | undefined
+    let waiting: Array<() => void> = []
+    let currentWaiters: Array<() => void> = []
 
     const loadRoundMembers = async () => {
       if (!active) return
@@ -53,6 +55,8 @@ export function useRoundMembers(
       // Coalesce events during a request into one trailing fetch, never drop them.
       while (active && pending) {
         pending = false
+        currentWaiters = waiting
+        waiting = []
         controller = new AbortController()
         if (!hasLoaded) {
           setState({
@@ -119,25 +123,32 @@ export function useRoundMembers(
               error: 'Die Mitglieder konnten nicht geladen werden.',
             })
           }
+        } finally {
+          currentWaiters.splice(0).forEach(resolve => resolve())
         }
       }
       inFlight = false
     }
 
-    reloadRef.current = () => {
+    // A caller waits for a fetch STARTED after its invalidation, not an older
+    // in-flight response. Existing fire-and-forget callers remain supported.
+    reloadRef.current = () => new Promise<void>(resolve => {
+      waiting.push(resolve)
       void loadRoundMembers()
-    }
+    })
     void loadRoundMembers()
 
     return () => {
       active = false
       reloadRef.current = null
       controller?.abort()
+      waiting.splice(0).forEach(resolve => resolve())
+      currentWaiters.splice(0).forEach(resolve => resolve())
     }
   }, [hasValidRoundId, roundId, userId])
 
   const reload = useCallback(() => {
-    reloadRef.current?.()
+    return reloadRef.current?.() ?? Promise.resolve()
   }, [])
 
   if (!userId) {

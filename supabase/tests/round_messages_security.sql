@@ -1,4 +1,5 @@
--- Run only after the Phase 3.1 through Phase 3.3c2-3 migrations
+-- Run only after the Phase 3.1 through Phase 3.4 migrations and
+-- 20260919100000_preserve_game_master_narration_selection.sql
 -- in an approved isolated test database, as postgres, with psql ON_ERROR_STOP enabled.
 -- Everything, including fixture accounts, rolls back. No production data edits.
 -- If ON_ERROR_STOP aborts execution, issue ROLLBACK in any still-open session.
@@ -623,8 +624,9 @@ select pg_temp.check_chat((select count(*)=1 from public.round_messages where ro
     and character_id=pg_temp.chat_id('assignment_self') and recipient_user_id=auth.uid()
     and author_user_id is null and round_seq=3 and body='Dir wurde der Charakter GM Original zugewiesen.'),
   'GM self-assignment sees only own private message');
-select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('assignment_self') from public.round_memberships
-  where round_id=pg_temp.chat_id('assignment_round') and user_id=auth.uid()),'GM self-assignment recalculates active character');
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('assignment_round') and user_id=auth.uid()),
+  'GM self-assignment preserves explicit narration selection');
 reset role;
 select pg_temp.check_chat((select count(*)=3 from public.round_messages where round_id=pg_temp.chat_id('assignment_round'))
   and (select count(*)=5 from public.characters where round_id=pg_temp.chat_id('assignment_round')),
@@ -1162,6 +1164,135 @@ select pg_temp.check_chat((select status='paused' and orphaned_at is null from p
   and not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('archive_orphan')),
   'recovered round unarchives silently to paused');
 
+-- GM speaker selection: real RPC and lifecycle assertions, all rolled back.
+insert into chat_test_ids(key) values
+  ('speaker_round'),('speaker_other_round'),('speaker_gm_a'),('speaker_gm_b'),
+  ('speaker_player_a'),('speaker_player_b'),('speaker_foreign'),('speaker_prepared');
+insert into public.rounds(id,name) values
+  (pg_temp.chat_id('speaker_round'),'Speaker selection fixture'),
+  (pg_temp.chat_id('speaker_other_round'),'Other speaker fixture');
+insert into public.round_memberships(round_id,user_id,role) values
+  (pg_temp.chat_id('speaker_round'),pg_temp.chat_id('gm'),'game_master'),
+  (pg_temp.chat_id('speaker_round'),pg_temp.chat_id('player'),'player');
+insert into public.characters(id,name,owner_user_id,round_id,template_key,template_version) values
+  (pg_temp.chat_id('speaker_gm_a'),'GM A',pg_temp.chat_id('gm'),pg_temp.chat_id('speaker_round'),'vaesen',1),
+  (pg_temp.chat_id('speaker_player_a'),'Player A',pg_temp.chat_id('player'),pg_temp.chat_id('speaker_round'),'vaesen',1);
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('gm'))
+  and (select active_character_id=pg_temp.chat_id('speaker_player_a') from public.round_memberships
+    where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),
+  'sole-character lifecycle preserves GM NULL and initializes player');
+insert into public.characters(id,name,owner_user_id,round_id,template_key,template_version) values
+  (pg_temp.chat_id('speaker_gm_b'),'GM B',pg_temp.chat_id('gm'),pg_temp.chat_id('speaker_round'),'vaesen',1),
+  (pg_temp.chat_id('speaker_player_b'),'Player B',pg_temp.chat_id('player'),pg_temp.chat_id('speaker_round'),'vaesen',1),
+  (pg_temp.chat_id('speaker_foreign'),'Foreign',pg_temp.chat_id('gm'),pg_temp.chat_id('speaker_other_round'),'vaesen',1),
+  (pg_temp.chat_id('speaker_prepared'),'Prepared',null,pg_temp.chat_id('speaker_round'),'vaesen',1);
+select pg_temp.check_chat(not exists (
+  select 1 from pg_catalog.pg_proc p,
+    lateral pg_catalog.aclexplode(coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+  where p.oid in ('public.set_active_character(uuid,uuid)'::regprocedure,
+    'public.set_active_character(uuid)'::regprocedure)
+    and acl.grantee=0 and acl.privilege_type='EXECUTE')
+  and not has_function_privilege('anon','public.set_active_character(uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.set_active_character(uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.set_active_character(uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.set_active_character(uuid)','EXECUTE'),
+  'both selection RPCs deny PUBLIC/anon and allow authenticated');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_a'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_gm_a') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),'GM selects own character');
+select public.set_active_character(pg_temp.chat_id('speaker_round'),null);
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),'GM explicitly selects narration');
+select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_b'));
+select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_player_b'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_player_b') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player'))
+  and (select active_character_id=pg_temp.chat_id('speaker_gm_b') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),
+  'GM manages another member without changing own selection');
+select public.set_active_character(pg_temp.chat_id('speaker_player_a'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_player_a') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),'legacy RPC retains GM management');
+select pg_temp.chat_error($q$select public.set_active_character(null::uuid)$q$,'P0001');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_foreign'))$q$,'P0001');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_other_round'),pg_temp.chat_id('speaker_gm_a'))$q$,'P0001');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_prepared'))$q$,'P0001');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),gen_random_uuid())$q$,'P0001');
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('player')::text,true);
+select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_player_b'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_player_b') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),'player selects own character');
+select public.set_active_character(pg_temp.chat_id('speaker_player_a'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_player_a') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),'legacy player selection remains compatible');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_a'))$q$,'P0001');
+-- Player, nonmember, administrative roles and unauthenticated claims cannot clear.
+do $$
+declare viewer text;
+begin
+  foreach viewer in array array['player','second','admin','super'] loop
+    perform set_config('request.jwt.claim.sub',pg_temp.chat_id(viewer)::text,true);
+    perform pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),null)$q$,'P0001');
+    if viewer<>'player' then
+      perform pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_player_b'))$q$,'P0001');
+    end if;
+  end loop;
+  perform set_config('request.jwt.claim.sub','',true);
+  perform pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),null)$q$,'P0001','Not authenticated');
+end;
+$$;
+reset role;
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_gm_b') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('gm'))
+  and (select active_character_id=pg_temp.chat_id('speaker_player_a') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),
+  'rejected writes preserve both selections');
+-- Explicit recalculation and lifecycle events preserve valid GM IDs, then clear
+-- invalid ones without selecting another available character.
+select public.recalculate_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('gm'));
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_gm_b') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('gm')),'valid GM ID survives recalculation');
+update public.characters set deleted_at=now() where id=pg_temp.chat_id('speaker_gm_b');
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('gm')),'invalid GM selection clears without replacement');
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.chat_id('gm')::text,true);
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_b'))$q$,'P0001');
+reset role;
+update public.characters set deleted_at=null where id=pg_temp.chat_id('speaker_gm_b');
+update public.characters set round_id=null where id=pg_temp.chat_id('speaker_gm_b');
+update public.characters set round_id=pg_temp.chat_id('speaker_round') where id=pg_temp.chat_id('speaker_gm_b');
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('gm')),'GM NULL survives restore unassign and reassign');
+update public.round_memberships set active_character_id=null
+where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player');
+select public.recalculate_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('player'));
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),'player with multiple choices remains unselected');
+delete from public.characters where id=pg_temp.chat_id('speaker_player_b');
+select pg_temp.check_chat((select active_character_id=pg_temp.chat_id('speaker_player_a') from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),'player auto-selects sole remaining character');
+delete from public.characters where id=pg_temp.chat_id('speaker_player_a');
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=pg_temp.chat_id('player')),'player without characters remains unselected');
+update public.rounds set locked_at=now(),locked_reason='Selection test' where id=pg_temp.chat_id('speaker_round');
+set local role authenticated;
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),null)$q$,'P0001','Round is locked');
+select pg_temp.chat_error($q$select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_a'))$q$,'P0001','Round is locked');
+reset role;
+update public.rounds set locked_at=null,locked_reason=null,status='archived' where id=pg_temp.chat_id('speaker_round');
+set local role authenticated;
+select public.set_active_character(pg_temp.chat_id('speaker_round'),pg_temp.chat_id('speaker_gm_a'));
+select public.set_active_character(pg_temp.chat_id('speaker_round'),null);
+select pg_temp.check_chat((select active_character_id is null from public.round_memberships
+  where round_id=pg_temp.chat_id('speaker_round') and user_id=auth.uid()),'archived selection retains existing semantics');
+reset role;
+select pg_temp.check_chat(not exists(select 1 from public.round_messages where round_id=pg_temp.chat_id('speaker_round')),
+  'selection creates no chat or system messages');
+
 -- Phase 3.3c2-3: deletion PREPARATION only; never delete auth.users/profiles.
 -- All new accounts and rounds are transaction-local fixtures and roll back.
 create temporary table deletion_targets (
@@ -1219,12 +1350,18 @@ from deletion_cases c join deletion_targets t on t.key=c.target_key
 union all
 select survivor_character_id,'Survivor owned',pg_temp.chat_id('second'),round_id,'vaesen',1
 from deletion_cases;
--- Lifecycle triggers select both sole owned characters before status/lock fixtures.
+-- Player lifecycle still selects its sole character; GM NULL remains narration.
 select pg_temp.check_chat(not exists(
   select 1 from deletion_cases c join deletion_targets t on t.key=c.target_key
   join public.round_memberships m on m.round_id=c.round_id and m.user_id=t.id
-  where m.active_character_id is distinct from c.character_id),
-  'deletion fixtures have valid active characters before cleanup');
+  where m.active_character_id is distinct from
+    (case when c.is_gm then null else c.character_id end))
+  and not exists(
+    select 1 from deletion_cases c
+    join public.round_memberships m on m.round_id=c.round_id and m.user_id=pg_temp.chat_id('second')
+    where m.active_character_id is distinct from
+      (case when c.is_gm then c.survivor_character_id else null end)),
+  'deletion fixtures preserve GM narration and player active characters before cleanup');
 update public.rounds r set status=c.original_status,
   locked_at=case when c.locked then now() else null end,
   locked_reason=case when c.locked then 'Deletion moderation fixture' else null end
@@ -1328,7 +1465,8 @@ begin
       and exists(select 1 from public.characters where id=fixture.character_id
         and owner_user_id=fixture.target_id and round_id is null)
       and exists(select 1 from public.round_memberships where round_id=fixture.round_id
-        and user_id=pg_temp.chat_id('second') and active_character_id=fixture.survivor_character_id
+        and user_id=pg_temp.chat_id('second') and active_character_id is not distinct from
+          (case when fixture.is_gm then fixture.survivor_character_id else null end)
         and role=(case when fixture.is_gm then 'player' else 'game_master' end))
       and exists(select 1 from public.characters where id=fixture.survivor_character_id and round_id=fixture.round_id),
       fixture.key||' deletion marker membership cleanup and character lifecycle preserved');
