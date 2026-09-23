@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { isDiceCommand, parseDiceCommand } from '../lib/parseDiceCommand'
+import type { DiceCommand } from '../lib/parseDiceCommand'
 import { decodeRoundMessage, isValidMessageBody } from '../types/roundMessage'
+import { useSendDiceRoll } from './useSendDiceRoll'
 
 const errorMessages: Record<string, string> = {
   CHAT_NOT_AUTHORIZED: 'Du hast keinen Zugriff auf diesen Chat.',
@@ -11,8 +14,16 @@ const errorMessages: Record<string, string> = {
   CHAT_IDENTITY_CHANGED: 'Deine Sprecheridentität hat sich geändert. Prüfe sie vor dem erneuten Senden.',
   CHAT_INVALID_BODY: 'Die Nachricht muss Text enthalten und darf höchstens 4.000 Zeichen lang sein.',
   CHAT_REQUEST_CONFLICT: 'Diese Anfrage wurde bereits für eine andere Nachricht verwendet. Bitte ändere den Entwurf.',
+  DICE_INVALID_PARAMETERS: 'Ungültiger Würfelbefehl. Erlaubt ist z. B. /r 3d6+5.',
+  DICE_STORED_ROLL_INCOMPLETE: 'Der gespeicherte Wurf ist unvollständig. Bitte versuche es später erneut.',
 }
-type Attempt = { body: string; requestId: string; characterId: string | null; intentVersion: number }
+const invalidDiceCommand = 'Ungültiger Würfelbefehl. Erlaubt ist z. B. /r 3d6+5.'
+const diceRequestConflict = 'Diese Würfelanfrage wurde bereits anders verwendet. Bitte erneut senden.'
+const additionalDefinitiveDiceErrors = new Set([
+  'CHAT_ROUND_ARCHIVED', 'CHAT_ROUND_LOCKED', 'CHAT_NOT_AUTHORIZED',
+  'CHAT_REQUEST_CONFLICT', 'DICE_INVALID_PARAMETERS', 'DICE_STORED_ROLL_INCOMPLETE',
+])
+type Attempt = { body: string; dice: DiceCommand | null; requestId: string; characterId: string | null; intentVersion: number }
 type SendState = { scopeKey: string; text: string; isSending: boolean; error: string | null; pendingAttempt: Attempt | null }
 
 export function useSendRoundMessage(
@@ -23,6 +34,7 @@ export function useSendRoundMessage(
   onAccessRefresh: () => void,
 ) {
   const scopeKey = `${userId}:${roundId}`
+  const sendDiceRoll = useSendDiceRoll(roundId)
   const [state, setState] = useState<SendState>({ scopeKey, text: '', isSending: false, error: null, pendingAttempt: null })
   const [intent, setIntent] = useState({ characterId: expectedCharacterId, version: 0 })
   const currentIntent = intent.characterId === expectedCharacterId
@@ -53,36 +65,50 @@ export function useSendRoundMessage(
 
   const send = async (retryOriginal = false) => {
     const lifetime = lifetimeRef.current
-    if (!lifetime?.active || lifetime.scopeKey !== scopeKey || lifetime.inFlight || !isValidMessageBody(visible.text)) return false
+    if (!lifetime?.active || lifetime.scopeKey !== scopeKey || lifetime.inFlight) return false
+    const diceCommand = isDiceCommand(visible.text)
+    if (!diceCommand && !isValidMessageBody(visible.text)) return false
+    const dice = diceCommand ? parseDiceCommand(visible.text) : null
+    if (diceCommand && !dice) {
+      setState({ scopeKey, text: visible.text, isSending: false, error: invalidDiceCommand, pendingAttempt: lifetime.attempt })
+      return false
+    }
     if (retryOriginal && !lifetime.attempt) return false
     lifetime.inFlight = true
     // A running attempt is immutable. A changed intent gets a new request; an
     // explicit retry always retains the original body, identity and request ID.
     const reusable = lifetime.attempt && (retryOriginal || lifetime.attempt.intentVersion === currentIntent.version)
     const attempt = reusable ? lifetime.attempt! : {
-      body: visible.text, requestId: crypto.randomUUID(), characterId: expectedCharacterId,
+      body: visible.text, dice, requestId: crypto.randomUUID(), characterId: expectedCharacterId,
       intentVersion: currentIntent.version,
     }
     lifetime.attempt = attempt
     lifetime.controller = new AbortController()
     setState({ scopeKey, text: attempt.body, isSending: true, error: null, pendingAttempt: null })
     try {
-      const { data, error } = await supabase.rpc('send_round_message', {
-        p_round_id: roundId, p_body: attempt.body, p_client_request_id: attempt.requestId,
-        p_expected_active_character_id: attempt.characterId,
-      }).abortSignal(lifetime.controller.signal).single().overrideTypes<unknown, { merge: false }>()
+      const { data, error } = attempt.dice
+        ? await sendDiceRoll(attempt.dice, attempt.requestId, attempt.characterId, lifetime.controller.signal)
+        : await supabase.rpc('send_round_message', {
+          p_round_id: roundId, p_body: attempt.body, p_client_request_id: attempt.requestId,
+          p_expected_active_character_id: attempt.characterId,
+        }).abortSignal(lifetime.controller.signal).single().overrideTypes<unknown, { merge: false }>()
       if (!lifetime.active) return false
       if (error) {
-        if (error.message === 'CHAT_IDENTITY_CHANGED' || error.message === 'CHAT_CHARACTER_UNAVAILABLE' || error.message === 'CHAT_NO_ACTIVE_CHARACTER') {
-          lifetime.attempt = null // Definitive rejection; the next click may use the refreshed identity.
+        if (error.message === 'CHAT_IDENTITY_CHANGED' || error.message === 'CHAT_CHARACTER_UNAVAILABLE'
+          || error.message === 'CHAT_NO_ACTIVE_CHARACTER'
+          || (attempt.dice && additionalDefinitiveDiceErrors.has(error.message))) {
+          lifetime.attempt = null // A definitive rejection ends this intent; the next submit gets a new ID.
         }
         setState({ scopeKey, text: attempt.body, isSending: false,
-          error: errorMessages[error.message] ?? 'Senden nicht bestätigt. Bitte erneut versuchen.', pendingAttempt: lifetime.attempt })
+          error: attempt.dice && error.message === 'CHAT_REQUEST_CONFLICT'
+            ? diceRequestConflict : errorMessages[error.message] ?? 'Senden nicht bestätigt. Bitte erneut versuchen.',
+          pendingAttempt: lifetime.attempt })
         onAccessRefresh()
         return false
       }
       const message = decodeRoundMessage(data)
-      if (!message || message.client_request_id !== attempt.requestId || message.round_id !== roundId) throw new Error('Unconfirmed send')
+      if (!message || message.client_request_id !== attempt.requestId || message.round_id !== roundId
+        || (attempt.dice && (message.kind !== 'dice_roll' || !message.dice_roll))) throw new Error('Unconfirmed send')
       lifetime.attempt = null
       setState({ scopeKey, text: '', isSending: false, error: null, pendingAttempt: null })
       // Fetch the whole authorized delta, not just this receipt: other sends may precede it.

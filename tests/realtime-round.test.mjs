@@ -2513,3 +2513,220 @@ test('membership reload completion waits for its trailing fetch and settles on e
     h.cleanup()
   }
 })
+
+// Phase 3.5a: the command parser is pure; the existing composer owns both send paths.
+test('dice command parser accepts complete XdN±M expressions, whitespace, case and exact boundaries',()=>{
+  const h=harness({}),{isDiceCommand,parseDiceCommand}=h.load('src/lib/parseDiceCommand.ts')
+  for(const [input,count,sides,modifier] of [
+    ['/r 1d20',1,20,0],['/r 3d6',3,6,0],['/r 3d6+5',3,6,5],
+    ['/r 2d10-2',2,10,-2],['/r 1d100-10',1,100,-10],
+    ['/r 3D6+5',3,6,5],['/r 3d6 + 5',3,6,5],['/r    3d6',3,6,0],
+    ['   /r 3d6+2   ',3,6,2],['/r 1d2',1,2,0],['/r 50d1000',50,1000,0],
+    ['/r 1d6+9999',1,6,9999],['/r 1d6-9999',1,6,-9999],['/r 1d6+0',1,6,0],
+  ]) {
+    assert.equal(isDiceCommand(input),true,input)
+    assert.deepEqual(JSON.parse(JSON.stringify(parseDiceCommand(input))),{diceCount:count,diceSides:sides,modifier},input)
+  }
+  h.cleanup()
+})
+
+test('dice command parser rejects partial or out-of-range expressions without claiming other text',()=>{
+  const h=harness({}),{isDiceCommand,parseDiceCommand}=h.load('src/lib/parseDiceCommand.ts')
+  for(const input of ['/r','/r d20','/r 0d6','/r 51d6','/r 1d1','/r 1d1001',
+    '/r 1d6+10000','/r 1d6-10000','/r 2d6+1d4','/r 2.5d6','/r 2d6+3.5',
+    '/r foo','/r 2d6abc','/r 2d6 text','/r 2d6+Infinity','/r 2d6+999999999999999999999']) {
+    assert.equal(isDiceCommand(input),true,input)
+    assert.equal(parseDiceCommand(input),null,input)
+  }
+  for(const input of ['Hallo','/random Hallo','/rhello','/roll 2d6','/R 2d6']) {
+    assert.equal(isDiceCommand(input),false,input)
+    assert.equal(parseDiceCommand(input),null,input)
+  }
+  h.cleanup()
+})
+
+function diceSendSetup(text,onSent=()=>{},onAccessRefresh=()=>{}) {
+  const f=sendSetup(onSent,onAccessRefresh)
+  f.h.render().setText(text)
+  return f
+}
+function confirmedDice(request,overrides={}) {
+  return diceMessage(101,{client_request_id:request.args.p_client_request_id,...overrides})
+}
+
+test('composer routes only standalone /r to dice; ordinary and /r-prefixed words remain chat',async()=>{
+  for(const input of ['Hallo','/random Hallo','/rhello']) {
+    const f=diceSendSetup(input)
+    const pending=f.h.render().send()
+    assert.equal(f.b.requests[0].rpc,'send_round_message',input)
+    assert.equal(f.b.requests[0].args.p_body,input)
+    f.b.requests[0].resolve({data:chatMessage(101,{client_request_id:f.b.requests[0].args.p_client_request_id}),error:null})
+    assert.equal(await pending,true);f.h.cleanup()
+  }
+  for(const input of ['/r','/r 2d6+foo','/r 2d6+1d4']) {
+    const f=diceSendSetup(input)
+    assert.equal(await f.h.render().send(),false)
+    assert.equal(f.b.requests.length,0,input)
+    assert.equal(f.h.render().text,input)
+    assert.match(f.h.render().error,/Ungültiger Würfelbefehl/)
+    f.h.cleanup()
+  }
+})
+
+test('dice RPC receives only structured count, sides, modifier, round, intent and fresh request ID',async()=>{
+  for(const [text,count,sides,modifier] of [
+    ['/r 3d6',3,6,0],['/r 3d6+5',3,6,5],['/r 2d10-2',2,10,-2],
+  ]) {
+    let synced=0
+    const f=diceSendSetup(text,()=>synced++)
+    const pending=f.h.render().send(),request=f.b.requests[0]
+    assert.equal(request.rpc,'send_round_dice_roll')
+    assert.deepEqual(Object.keys(request.args).sort(),[
+      'p_client_request_id','p_dice_count','p_dice_sides','p_expected_active_character_id','p_modifier','p_round_id',
+    ])
+    assert.equal(request.args.p_round_id,round)
+    assert.equal(request.args.p_dice_count,count)
+    assert.equal(request.args.p_dice_sides,sides)
+    assert.equal(request.args.p_modifier,modifier)
+    assert.equal(request.args.p_expected_active_character_id,other)
+    assert.equal(f.h.render().text,text,'draft remains until confirmation')
+    request.resolve({data:confirmedDice(request),error:null})
+    assert.equal(await pending,true)
+    assert.equal(f.h.render().text,'');assert.equal(f.h.render().error,null);assert.equal(synced,1)
+    f.h.cleanup()
+  }
+})
+
+test('dice send rejects wrong kind, round, request ID or missing detail after the shared decoder',async()=>{
+  for(const mutate of [
+    request=>chatMessage(101,{client_request_id:request.args.p_client_request_id}),
+    request=>confirmedDice(request,{round_id:'other-round'}),
+    request=>confirmedDice(request,{client_request_id:'another-request'}),
+    request=>confirmedDice(request,{dice_roll:null}),
+  ]) {
+    let synced=0
+    const f=diceSendSetup('/r 1d20',()=>synced++)
+    const pending=f.h.render().send(),request=f.b.requests[0]
+    request.resolve({data:mutate(request),error:null})
+    assert.equal(await pending,false)
+    assert.equal(f.h.render().text,'/r 1d20')
+    assert.ok(f.h.render().error);assert.equal(synced,0)
+    const retry=f.h.render().send(),repeated=f.b.requests[1]
+    assert.equal(repeated.args.p_client_request_id,request.args.p_client_request_id)
+    repeated.resolve({data:confirmedDice(repeated),error:null})
+    assert.equal(await retry,true);assert.equal(f.h.render().text,'');assert.equal(synced,1)
+    f.h.cleanup()
+  }
+})
+
+test('dice timeout retries its immutable request, then a new roll gets a fresh UUID',async()=>{
+  const f=diceSendSetup('/r 3d6+2')
+  const first=f.h.render().send()
+  f.b.requests[0].reject(Error('timeout'));assert.equal(await first,false)
+  assert.equal(f.h.render().text,'/r 3d6+2')
+  const second=f.h.render().send()
+  assert.equal(f.b.requests[1].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  f.b.requests[1].resolve({data:confirmedDice(f.b.requests[1]),error:null})
+  assert.equal(await second,true)
+  f.h.render().setText('/r 3d6+2')
+  const third=f.h.render().send()
+  assert.notEqual(f.b.requests[2].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  f.b.requests[2].resolve({data:confirmedDice(f.b.requests[2]),error:null})
+  assert.equal(await third,true)
+  f.h.cleanup()
+})
+
+test('editing a dice draft after an ambiguous failure starts a new request',async()=>{
+  const f=diceSendSetup('/r 2d6')
+  const first=f.h.render().send(),original=f.b.requests[0]
+  original.reject(Error('connection lost'));assert.equal(await first,false)
+  f.h.render().setText('/r 3d6')
+  const changed=f.h.render().send(),next=f.b.requests[1]
+  assert.notEqual(next.args.p_client_request_id,original.args.p_client_request_id)
+  assert.equal(next.args.p_dice_count,3)
+  next.resolve({data:confirmedDice(next),error:null})
+  assert.equal(await changed,true);f.h.cleanup()
+})
+
+test('an unknown dice RPC error keeps the request ID for an idempotent retry',async()=>{
+  const f=diceSendSetup('/r 2d6')
+  const first=f.h.render().send(),original=f.b.requests[0]
+  original.resolve({data:null,error:{message:'UNRECOGNIZED_SERVER_ERROR'}})
+  assert.equal(await first,false);assert.equal(f.h.render().text,'/r 2d6')
+  const retry=f.h.render().send(),repeated=f.b.requests[1]
+  assert.equal(repeated.args.p_client_request_id,original.args.p_client_request_id)
+  repeated.resolve({data:confirmedDice(repeated),error:null})
+  assert.equal(await retry,true);f.h.cleanup()
+})
+
+test('dice in flight blocks duplicate submits and immediately releases the composer on completion',async()=>{
+  const f=diceSendSetup('/r 2d6')
+  const first=f.h.render().send()
+  assert.equal(await f.h.render().send(),false)
+  assert.equal(f.b.requests.length,1);assert.equal(f.h.render().isSending,true)
+  f.b.requests[0].resolve({data:confirmedDice(f.b.requests[0]),error:null})
+  assert.equal(await first,true)
+  f.h.render().setText('/r 2d6')
+  const next=f.h.render().send()
+  assert.equal(f.b.requests.length,2)
+  assert.notEqual(f.b.requests[1].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  f.b.requests[1].resolve({data:confirmedDice(f.b.requests[1]),error:null})
+  assert.equal(await next,true);f.h.cleanup()
+})
+
+test('definitive dice rejections preserve the draft but release the request ID',async()=>{
+  for(const [code,meaning] of [
+    ['CHAT_IDENTITY_CHANGED','Sprecheridentität'],['CHAT_CHARACTER_UNAVAILABLE','Charakter'],
+    ['CHAT_NO_ACTIVE_CHARACTER','aktiven Charakter'],
+    ['CHAT_ROUND_ARCHIVED','Archivierte'],['CHAT_ROUND_LOCKED','gesperrt'],
+    ['CHAT_NOT_AUTHORIZED','keinen Zugriff'],['CHAT_REQUEST_CONFLICT','erneut senden'],
+    ['DICE_INVALID_PARAMETERS','Ungültiger Würfelbefehl'],
+    ['DICE_STORED_ROLL_INCOMPLETE','unvollständig'],
+  ]) {
+    let refreshed=0
+    const f=diceSendSetup('/r 2d6',()=>{},()=>refreshed++)
+    const pending=f.h.render().send(),request=f.b.requests[0]
+    request.resolve({data:null,error:{message:code}})
+    assert.equal(await pending,false)
+    assert.equal(f.b.requests.length,1,'a rejection must not start another roll')
+    assert.equal(f.h.render().text,'/r 2d6');assert.match(f.h.render().error,new RegExp(meaning))
+    assert.equal(refreshed,1)
+    const next=f.h.render().send(),newRequest=f.b.requests[1]
+    assert.notEqual(newRequest.args.p_client_request_id,request.args.p_client_request_id,code)
+    newRequest.resolve({data:confirmedDice(newRequest),error:null})
+    assert.equal(await next,true);assert.equal(f.h.render().text,'')
+    f.h.cleanup()
+  }
+})
+
+test('GM composer passes selected own character or explicit narration null to dice RPC',async()=>{
+  const f=gmSenderSetup()
+  f.render().composer.setText('/r 2d6')
+  const first=f.render().composer.send(),request=f.b.requests[0]
+  assert.equal(request.rpc,'send_round_dice_roll')
+  assert.equal(request.args.p_expected_active_character_id,other)
+  request.resolve({data:confirmedDice(request),error:null});assert.equal(await first,true)
+  canonicalSpeaker(f,null)
+  f.render().composer.setText('/r 2d6')
+  const second=f.render().composer.send(),narration=f.b.requests.at(-1)
+  assert.equal(narration.rpc,'send_round_dice_roll')
+  assert.equal(narration.args.p_expected_active_character_id,null)
+  narration.resolve({data:confirmedDice(narration,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),error:null})
+  assert.equal(await second,true);f.h.cleanup()
+})
+
+test('the existing form and Enter path submit /r through the same composer, preserving Shift+Enter',()=>{
+  let sends=0
+  const h=harness({}, {document:{body:{style:{overflow:''}}}})
+  const Panel=h.load('src/components/PlayChatPanel.tsx').default
+  const props={isDesktop:true,isOpen:true,onClose(){},chat:emptyChat(),composer:{...emptyComposer(),text:'/r 2d6',send:()=>{sends++;return false}},
+    disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}
+  const tree=h.render(Panel,[props]),input=nodes(tree).find(n=>n.type==='textarea')
+  input.props.onKeyDown({key:'Enter',shiftKey:true,nativeEvent:{isComposing:false},preventDefault(){throw Error('Shift+Enter stays native')}})
+  input.props.onKeyDown({key:'Enter',shiftKey:false,nativeEvent:{isComposing:false},preventDefault(){}})
+  nodes(tree).find(n=>n.type==='form').props.onSubmit({preventDefault(){}})
+  assert.equal(sends,2)
+  const invalid=h.render(Panel,[{...props,composer:{...props.composer,text:'/r'}}])
+  assert.equal(nodes(invalid).find(n=>n.type==='button'&&n.props.type==='submit').props.disabled,false)
+  h.cleanup()
+})

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { useRoundMessages } from '../hooks/useRoundMessages'
 import type { useSendRoundMessage } from '../hooks/useSendRoundMessage'
+import { isDiceCommand } from '../lib/parseDiceCommand'
 import { formatDiceExpression, isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
 
 type PlayChatPanelProps = {
@@ -83,7 +84,8 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
     positionRef.current.nearBottom = true
     onRead(latestSeq)
   }
-  const canSend = !disabledReason && !composer.isSending && isValidMessageBody(composer.text)
+  const canSend = !disabledReason && !composer.isSending
+    && (isDiceCommand(composer.text) || isValidMessageBody(composer.text))
   const send = async (retryOriginal = false) => {
     if (!canSend || !isOpen) return
     const generation = lifetime.current
