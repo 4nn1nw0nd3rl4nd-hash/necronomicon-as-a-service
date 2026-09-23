@@ -2515,7 +2515,7 @@ test('membership reload completion waits for its trailing fetch and settles on e
 })
 
 // Phase 3.5a: the command parser is pure; the existing composer owns both send paths.
-test('dice command parser accepts complete XdN±M expressions, whitespace, case and exact boundaries',()=>{
+test('dice command parser accepts XdN±M and normalized dN±M shorthand within exact boundaries',()=>{
   const h=harness({}),{isDiceCommand,parseDiceCommand}=h.load('src/lib/parseDiceCommand.ts')
   for(const [input,count,sides,modifier] of [
     ['/r 1d20',1,20,0],['/r 3d6',3,6,0],['/r 3d6+5',3,6,5],
@@ -2523,16 +2523,22 @@ test('dice command parser accepts complete XdN±M expressions, whitespace, case 
     ['/r 3D6+5',3,6,5],['/r 3d6 + 5',3,6,5],['/r    3d6',3,6,0],
     ['   /r 3d6+2   ',3,6,2],['/r 1d2',1,2,0],['/r 50d1000',50,1000,0],
     ['/r 1d6+9999',1,6,9999],['/r 1d6-9999',1,6,-9999],['/r 1d6+0',1,6,0],
+    ['/r d20',1,20,0],['/r d20+5',1,20,5],['/r d20-5',1,20,-5],
+    ['/r d20 - 3',1,20,-3],['/r d100-10',1,100,-10],['/r D6',1,6,0],
+    ['/r d2',1,2,0],['/r d1000',1,1000,0],
   ]) {
     assert.equal(isDiceCommand(input),true,input)
     assert.deepEqual(JSON.parse(JSON.stringify(parseDiceCommand(input))),{diceCount:count,diceSides:sides,modifier},input)
   }
+  assert.deepEqual(JSON.parse(JSON.stringify(parseDiceCommand('/r d20'))),
+    JSON.parse(JSON.stringify(parseDiceCommand('/r 1d20'))))
   h.cleanup()
 })
 
 test('dice command parser rejects partial or out-of-range expressions without claiming other text',()=>{
   const h=harness({}),{isDiceCommand,parseDiceCommand}=h.load('src/lib/parseDiceCommand.ts')
-  for(const input of ['/r','/r d20','/r 0d6','/r 51d6','/r 1d1','/r 1d1001',
+  for(const input of ['/r','/r d','/r d1','/r d1001','/r d20+10000','/r d20-10000',
+    '/r d20+2d6','/r dd20','/r d20foo','/r 0d6','/r 51d6','/r 1d1','/r 1d1001',
     '/r 1d6+10000','/r 1d6-10000','/r 2d6+1d4','/r 2.5d6','/r 2d6+3.5',
     '/r foo','/r 2d6abc','/r 2d6 text','/r 2d6+Infinity','/r 2d6+999999999999999999999']) {
     assert.equal(isDiceCommand(input),true,input)
@@ -2563,7 +2569,9 @@ test('composer routes only standalone /r to dice; ordinary and /r-prefixed words
     f.b.requests[0].resolve({data:chatMessage(101,{client_request_id:f.b.requests[0].args.p_client_request_id}),error:null})
     assert.equal(await pending,true);f.h.cleanup()
   }
-  for(const input of ['/r','/r 2d6+foo','/r 2d6+1d4']) {
+  for(const input of ['/r','/r d','/r d1','/r d1001','/r d20+10000',
+    '/r d20-10000','/r d20+2d6','/r dd20','/r d20foo',
+    '/r 2d6+foo','/r 2d6+1d4']) {
     const f=diceSendSetup(input)
     assert.equal(await f.h.render().send(),false)
     assert.equal(f.b.requests.length,0,input)
@@ -2575,6 +2583,7 @@ test('composer routes only standalone /r to dice; ordinary and /r-prefixed words
 
 test('dice RPC receives only structured count, sides, modifier, round, intent and fresh request ID',async()=>{
   for(const [text,count,sides,modifier] of [
+    ['/r d20',1,20,0],['/r 1d20',1,20,0],['/r d20+5',1,20,5],
     ['/r 3d6',3,6,0],['/r 3d6+5',3,6,5],['/r 2d10-2',2,10,-2],
   ]) {
     let synced=0
@@ -2729,4 +2738,28 @@ test('the existing form and Enter path submit /r through the same composer, pres
   const invalid=h.render(Panel,[{...props,composer:{...props.composer,text:'/r'}}])
   assert.equal(nodes(invalid).find(n=>n.type==='button'&&n.props.type==='submit').props.disabled,false)
   h.cleanup()
+})
+
+test('desktop and mobile chat expose native closed help without submitting or changing the draft',()=>{
+  for(const isDesktop of [true,false]) {
+    let sends=0,edits=0
+    const h=harness({}, {document:{body:{style:{overflow:''}}}})
+    const Panel=h.load('src/components/PlayChatPanel.tsx').default
+    const props={isDesktop,isOpen:false,onClose(){},chat:emptyChat(),
+      composer:{...emptyComposer(),text:'Mein Entwurf',send:()=>{sends++;return false},setText:()=>edits++},
+      disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}
+    const tree=h.render(Panel,[props]),help=nodes(tree).find(n=>n.type==='details'&&n.props.className==='play-chat-help')
+    assert.ok(help)
+    assert.equal(help.props.open,undefined,'native details are closed by default')
+    assert.equal(nodes(help).find(n=>n.type==='summary').props.children,'Chat & Würfelbefehle')
+    assert.equal(nodes(help).some(n=>n.type==='form'||n.type==='button'),false,'help cannot submit the form')
+    for(const example of ['/r d20','/r 3d6','/r 3d6+5','/r 2d10-2']) assert.ok(textOf(help).includes(example),example)
+    assert.match(textOf(help),/1 bis 50 Würfel/)
+    assert.match(textOf(help),/d2 bis d1000/)
+    assert.match(textOf(help),/Modifier −9999 bis \+9999/)
+    assert.match(textOf(help),/nur eine Würfelart/)
+    assert.equal(nodes(h.render()).find(n=>n.type==='textarea').props.value,'Mein Entwurf')
+    assert.equal(sends,0);assert.equal(edits,0)
+    h.cleanup()
+  }
 })

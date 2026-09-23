@@ -8,14 +8,17 @@ gespeichert.
 
 ## Syntax und Grenzen
 
-Erlaubt ist genau `/r XdN`, `/r XdN+M` oder `/r XdN-M` mit ganzen Dezimalzahlen:
+Erlaubt ist `/r XdN` mit optionalem `+M` oder `-M`. Für einen Würfel darf `X`
+entfallen: `/r dN`, `/r dN+M` und `/r dN-M` sind Kurzformen für `1dN±M`.
+Der Parser liefert in diesem Fall `diceCount: 1`; der Backendvertrag bleibt
+gleich.
 
 - `X`: 1–50 Würfel.
 - `N`: 2–1000 Seiten.
 - `M`: 0–9999; ohne Angabe ist der Modifier 0.
 
-Beispiele: `/r 1d20`, `/r 3d6`, `/r 3d6+5`, `/r 2d10-2`,
-`/r 1d100-10`. Äußere Leerzeichen, mehrere Leerzeichen nach `/r`,
+Beispiele: `/r d20`, `/r d20+5`, `/r d100-10`, `/r 1d20`, `/r 3d6`,
+`/r 3d6+5`, `/r 2d10-2`. Äußere Leerzeichen, mehrere Leerzeichen nach `/r`,
 Leerzeichen um das Vorzeichen und `D` statt `d` sind erlaubt. `/r 3d6+0` ist
 gültig und entspricht strukturiert dem Modifier 0. Der Backend-Aufruf erhält
 Zahlen; die Anzeige verwendet weiterhin `formatDiceExpression` und lässt `+0`
@@ -24,7 +27,7 @@ weg.
 [Der reine Parser](../src/lib/parseDiceCommand.ts)
 erkennt `/r` nur als eigenständigen Befehl, gefolgt von Whitespace oder dem
 Textende. `/random` und `/rhello` bleiben normale Texte. Der ganze Ausdruck
-muss passen. `/r`, `d20`, `0d6`, `2d1`, Werte außerhalb der Grenzen,
+muss passen. `/r`, `/r d`, `/r d1`, `0d6`, `2d1`, Werte außerhalb der Grenzen,
 Fließkommazahlen, angehängter Text und gemischte Ausdrücke wie
 `/r 2d6+1d4` werden nicht teilweise interpretiert. Ein erkennbarer, aber
 ungültiger `/r`-Befehl zeigt lokal eine kurze Fehlermeldung und behält den
@@ -88,7 +91,8 @@ Request-ID-Neuvergabe und Retry, Spieler-/GM-Identität, Doppel-Submit,
 Fehler- und Antwortprüfung sowie Formular/Enter ab. Die bestehenden Chat-,
 Realtime-, Pagination- und Unread-Tests bleiben Teil der vollständigen Suite.
 
-Phase 3.5b ergänzt die ausführliche Hilfe, 3.5c Schnellwürfel und 3.5d die
-Dice-Card. Würfelbuttons, Pools, gemischte Würfelarten, Secret Rolls,
+Phase 3.5b ergänzt die [eingeklappte Chat- und Würfelhilfe](phase-3.5b-chat-dice-help.md).
+3.5c Schnellwürfel und 3.5d die Dice-Card bleiben spätere Schritte.
+Würfelbuttons, Pools, gemischte Würfelarten, Secret Rolls,
 systemspezifische Masken, Character-Sheet-Rolls und Reroll gehören nicht zu
 3.5a. Diese Phase enthält keine Datenbankmigration oder SQL-Änderung.

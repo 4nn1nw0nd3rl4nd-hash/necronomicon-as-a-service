@@ -11,10 +11,10 @@ export function isDiceCommand(text: string): boolean {
 export function parseDiceCommand(text: string): DiceCommand | null {
   if (!isDiceCommand(text)) return null
   const expression = text.trim().slice(2).trim()
-  const match = /^([0-9]+)[dD]([0-9]+)(?:\s*([+-])\s*([0-9]+))?$/.exec(expression)
+  const match = /^([0-9]+)?[dD]([0-9]+)(?:\s*([+-])\s*([0-9]+))?$/.exec(expression)
   if (!match) return null
 
-  const diceCount = Number(match[1])
+  const diceCount = match[1] === undefined ? 1 : Number(match[1])
   const diceSides = Number(match[2])
   const magnitude = match[4] === undefined ? 0 : Number(match[4])
   const modifier = match[3] === '-' ? -magnitude : magnitude

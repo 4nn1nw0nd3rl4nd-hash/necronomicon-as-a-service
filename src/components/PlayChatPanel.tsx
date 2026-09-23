@@ -139,6 +139,20 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
       {unreadCount > 0 && <button className="play-button play-chat-new" type="button" onClick={jumpToLatest}>
         Neue Nachrichten ({unreadCount}) ↓
       </button>}
+      <details className="play-chat-help">
+        <summary>Chat &amp; Würfelbefehle</summary>
+        <div className="play-chat-help-content">
+          <p>Normale Nachricht: Text schreiben und senden.</p>
+          <p><code>/r</code> startet einen Würfelwurf:</p>
+          <ul>
+            <li><code>/r d20</code> – 1 × W20</li>
+            <li><code>/r 3d6</code> – 3 × W6</li>
+            <li><code>/r 3d6+5</code> – +5 als Modifier</li>
+            <li><code>/r 2d10-2</code> – −2 als Modifier</li>
+          </ul>
+          <p>1 bis 50 Würfel, d2 bis d1000, Modifier −9999 bis +9999. Pro Wurf ist nur eine Würfelart möglich.</p>
+        </div>
+      </details>
       <form className="play-chat-composer" onSubmit={event => { event.preventDefault(); send() }}>
         {speakerSelection && <div className="play-chat-speaker">
           <label htmlFor="play-chat-speaker-mode">Schreiben als:</label>
