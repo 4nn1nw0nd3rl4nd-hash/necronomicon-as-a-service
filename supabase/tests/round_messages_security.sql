@@ -1173,7 +1173,8 @@ insert into public.rounds(id,name) values
   (pg_temp.chat_id('speaker_other_round'),'Other speaker fixture');
 insert into public.round_memberships(round_id,user_id,role) values
   (pg_temp.chat_id('speaker_round'),pg_temp.chat_id('gm'),'game_master'),
-  (pg_temp.chat_id('speaker_round'),pg_temp.chat_id('player'),'player');
+  (pg_temp.chat_id('speaker_round'),pg_temp.chat_id('player'),'player'),
+  (pg_temp.chat_id('speaker_other_round'),pg_temp.chat_id('gm'),'game_master');
 insert into public.characters(id,name,owner_user_id,round_id,template_key,template_version) values
   (pg_temp.chat_id('speaker_gm_a'),'GM A',pg_temp.chat_id('gm'),pg_temp.chat_id('speaker_round'),'vaesen',1),
   (pg_temp.chat_id('speaker_player_a'),'Player A',pg_temp.chat_id('player'),pg_temp.chat_id('speaker_round'),'vaesen',1);
