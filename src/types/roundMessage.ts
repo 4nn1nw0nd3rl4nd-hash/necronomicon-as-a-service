@@ -142,7 +142,7 @@ export function getRoundMessageSequence(value: unknown): number | null {
   return value.round_seq
 }
 
-export function formatDiceExpression(details: DiceRollDetails) {
+export function formatDiceExpression(details: Pick<DiceRollDetails, 'dice_count' | 'dice_sides' | 'modifier'>) {
   const modifier = details.modifier > 0 ? `+${details.modifier}` : details.modifier < 0 ? String(details.modifier) : ''
   return `${details.dice_count}d${details.dice_sides}${modifier}`
 }

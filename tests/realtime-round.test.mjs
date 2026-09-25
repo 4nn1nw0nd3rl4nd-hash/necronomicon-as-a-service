@@ -1549,7 +1549,7 @@ for(const departed of [false,true]) {
 
 // Play mode: exercise the shell with the existing lifecycle harness.
 const emptyChat=()=>({messages:[],initialLatestSeq:0,isLoading:false,isLoadingOlder:false,hasOlder:false,accessDenied:false,error:null,reload(){},loadOlder(){}})
-const emptyComposer=()=>({text:'',isSending:false,error:null,setText(){},send(){}})
+const emptyComposer=()=>({text:'',isSending:false,error:null,setText(){},send(){},sendDice(){}})
 function playSetup() {
   const b=backend(), clock=browserClock()
   let roundId=round, account=user, desktop=true
@@ -2740,7 +2740,7 @@ test('the existing form and Enter path submit /r through the same composer, pres
   h.cleanup()
 })
 
-test('desktop and mobile chat expose native closed help without submitting or changing the draft',()=>{
+test('desktop and mobile chat toggle native help without submitting or changing the draft',()=>{
   for(const isDesktop of [true,false]) {
     let sends=0,edits=0
     const h=harness({}, {document:{body:{style:{overflow:''}}}})
@@ -2751,15 +2751,218 @@ test('desktop and mobile chat expose native closed help without submitting or ch
     const tree=h.render(Panel,[props]),help=nodes(tree).find(n=>n.type==='details'&&n.props.className==='play-chat-help')
     assert.ok(help)
     assert.equal(help.props.open,undefined,'native details are closed by default')
-    assert.equal(nodes(help).find(n=>n.type==='summary').props.children,'Chat & Würfelbefehle')
+    const summary=nodes(help).find(n=>n.type==='summary')
+    assert.equal(summary.props.children,'Chat & Würfelbefehle')
     assert.equal(nodes(help).some(n=>n.type==='form'||n.type==='button'),false,'help cannot submit the form')
     for(const example of ['/r d20','/r 3d6','/r 3d6+5','/r 2d10-2']) assert.ok(textOf(help).includes(example),example)
     assert.match(textOf(help),/1 bis 50 Würfel/)
     assert.match(textOf(help),/d2 bis d1000/)
     assert.match(textOf(help),/Modifier −9999 bis \+9999/)
     assert.match(textOf(help),/nur eine Würfelart/)
+
+    // The hook harness has no live DOM. Model the browser's native summary
+    // activation on the actual rendered details node by toggling its open IDL state.
+    help.open=help.props.open===true
+    assert.equal(help.open,false)
+    help.open=!help.open
+    assert.equal(help.open,true,'activating summary opens the native details element')
+
     assert.equal(nodes(h.render()).find(n=>n.type==='textarea').props.value,'Mein Entwurf')
     assert.equal(sends,0);assert.equal(edits,0)
     h.cleanup()
   }
+})
+
+function quickDiceUiSetup(sendDice=()=>false) {
+  const h=harness({}, {document:{body:{style:{overflow:''}}}})
+  const QuickDice=h.load('src/components/PlayChatPanel.tsx').QuickDiceControls
+  const composer={...emptyComposer(),text:'Ich öffne die Tür',sendDice}
+  const render=changes=>h.render(QuickDice,[{composer:{...composer,...changes},disabledReason:null}])
+  const button=(tree,name)=>nodes(tree).find(n=>n.type==='button'&&n.props['aria-label']===name)
+  return {h,render,button,composer}
+}
+
+test('quick dice selection switches one pool, corrects count, caps at 50 and resets',()=>{
+  const f=quickDiceUiSetup()
+  let tree=f.render()
+  assert.match(textOf(nodes(tree).find(n=>n.type==='output')),/Noch kein Würfel/)
+  const click=name=>{f.button(tree,name).props.onClick();tree=f.render()}
+  click('d6 hinzufügen');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'1d6')
+  click('d6 hinzufügen');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'2d6')
+  click('d6 hinzufügen');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'3d6')
+  click('Anzahl verringern');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'2d6')
+  click('Anzahl verringern');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'1d6')
+  click('Anzahl verringern');assert.match(textOf(tree),/Noch kein Würfel ausgewählt/)
+  click('d6 hinzufügen');click('d6 hinzufügen');click('d6 hinzufügen')
+  click('d20 hinzufügen');assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'1d20')
+  assert.equal(f.button(tree,'d20 hinzufügen').props['aria-pressed'],true)
+  click('Anzahl verringern');assert.match(textOf(tree),/Noch kein Würfel ausgewählt/)
+  click('d6 hinzufügen');click('Anzahl erhöhen')
+  assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'2d6')
+  for(let count=2;count<50;count++)click('Anzahl erhöhen')
+  assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'50d6')
+  assert.equal(f.button(tree,'Anzahl erhöhen').props.disabled,true)
+  f.button(tree,'d6 hinzufügen').props.onClick();tree=f.render()
+  assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'50d6','same die cannot create 51 dice')
+  nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Schnellwürfel zurücksetzen').props.onClick();tree=f.render()
+  assert.match(textOf(tree),/Noch kein Würfel ausgewählt/)
+  assert.equal(nodes(tree).find(n=>n.type==='input').props.value,'0')
+  f.h.cleanup()
+})
+
+test('quick dice modifier accepts integers and boundaries while invalid values cannot roll',()=>{
+  const rolls=[],f=quickDiceUiSetup(dice=>{rolls.push(dice);return false})
+  let tree=f.render();f.button(tree,'d6 hinzufügen').props.onClick();tree=f.render()
+  const setModifier=value=>{
+    nodes(tree).find(n=>n.type==='input').props.onChange({target:{value}});tree=f.render()
+  }
+  const roll=()=>nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Würfeln').props.onClick()
+  for(const [value,modifier,preview] of [['0',0,'1d6'],['5',5,'1d6+5'],['+5',5,'1d6+5'],['-2',-2,'1d6-2'],
+    ['9999',9999,'1d6+9999'],['+9999',9999,'1d6+9999'],['-9999',-9999,'1d6-9999'],
+    ['',0,'1d6'],['   ',0,'1d6']]) {
+    setModifier(value);assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),preview);roll()
+    assert.equal(rolls.at(-1).modifier,modifier)
+  }
+  const validRolls=rolls.length
+  for(const value of ['-','+','--','*','1.5','+1.5','abc','10000','+10000','-10000']) {
+    setModifier(value)
+    const rollButton=nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Würfeln')
+    assert.equal(rollButton.props.disabled,true,value);rollButton.props.onClick()
+    assert.equal(rolls.length,validRolls,value)
+  }
+  f.h.cleanup()
+})
+
+test('quick dice reset clears its pool and modifier without touching draft or either send path',()=>{
+  let diceSends=0,textSends=0,draftEdits=0
+  const f=quickDiceUiSetup(()=>diceSends++)
+  f.composer.send=()=>textSends++
+  f.composer.setText=()=>draftEdits++
+  let tree=f.render()
+  const click=name=>{f.button(tree,name).props.onClick();tree=f.render()}
+  click('d6 hinzufügen');click('d6 hinzufügen');click('d6 hinzufügen')
+  nodes(tree).find(n=>n.type==='input').props.onChange({target:{value:'2'}});tree=f.render()
+  assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'3d6+2')
+  nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Schnellwürfel zurücksetzen').props.onClick();tree=f.render()
+  assert.match(textOf(tree),/Noch kein Würfel ausgewählt/)
+  assert.equal(nodes(tree).find(n=>n.type==='input').props.value,'0')
+  assert.equal(f.composer.text,'Ich öffne die Tür')
+  assert.equal(draftEdits,0);assert.equal(diceSends,0);assert.equal(textSends,0)
+  f.h.cleanup()
+})
+
+test('quick dice UI keeps its selection after send and never edits the chat draft',()=>{
+  const rolls=[],f=quickDiceUiSetup(dice=>{rolls.push(dice);return Promise.resolve(true)})
+  let tree=f.render();f.button(tree,'d6 hinzufügen').props.onClick();tree=f.render()
+  f.button(tree,'d6 hinzufügen').props.onClick();tree=f.render()
+  nodes(tree).find(n=>n.type==='input').props.onChange({target:{value:'2'}});tree=f.render()
+  nodes(tree).find(n=>n.type==='button'&&textOf(n)==='Würfeln').props.onClick();tree=f.render()
+  assert.deepEqual(JSON.parse(JSON.stringify(rolls)),[{diceCount:2,diceSides:6,modifier:2}])
+  assert.equal(textOf(nodes(tree).find(n=>n.type==='output')),'2d6+2')
+  assert.equal(nodes(tree).some(n=>n.type==='textarea'),false,'quick controls do not own or edit the chat field')
+  f.h.cleanup()
+})
+
+test('quick dice uses the shared structured RPC path and preserves the chat draft on success and error',async()=>{
+  let synced=0
+  const f=sendSetup(()=>synced++)
+  f.h.render().setText('Ich öffne die Tür')
+  const first=f.h.render().sendDice({diceCount:3,diceSides:6,modifier:5}),request=f.b.requests[0]
+  assert.equal(request.rpc,'send_round_dice_roll')
+  assert.equal('p_body' in request.args,false)
+  assert.deepEqual({...request.args},{p_round_id:round,p_dice_count:3,p_dice_sides:6,p_modifier:5,
+    p_client_request_id:request.args.p_client_request_id,p_expected_active_character_id:other})
+  request.resolve({data:confirmedDice(request),error:null})
+  assert.equal(await first,true);assert.equal(f.h.render().text,'Ich öffne die Tür');assert.equal(synced,1)
+
+  const failed=f.h.render().sendDice({diceCount:2,diceSides:10,modifier:-2}),failure=f.b.requests[1]
+  failure.resolve({data:null,error:{message:'DICE_INVALID_PARAMETERS'}})
+  assert.equal(await failed,false);assert.equal(f.h.render().text,'Ich öffne die Tür')
+  assert.match(f.h.render().error,/Ungültiger Würfelbefehl/)
+  const retried=f.h.render().sendDice({diceCount:2,diceSides:10,modifier:-2}),newRequest=f.b.requests[2]
+  assert.notEqual(newRequest.args.p_client_request_id,failure.args.p_client_request_id)
+  newRequest.resolve({data:confirmedDice(newRequest),error:null});assert.equal(await retried,true)
+  f.h.cleanup()
+})
+
+test('quick dice retries one unchanged intent, releases it on success and replaces it after edits',async()=>{
+  const f=sendSetup()
+  f.h.render().setText('Entwurf bleibt')
+  const dice={diceCount:3,diceSides:6,modifier:2}
+  const first=f.h.render().sendDice(dice),original=f.b.requests[0]
+  original.reject(Error('timeout'));assert.equal(await first,false)
+  const retry=f.h.render().sendDice(dice),repeated=f.b.requests[1]
+  assert.equal(repeated.args.p_client_request_id,original.args.p_client_request_id)
+  repeated.reject(Error('decoder'));assert.equal(await retry,false)
+  const changed=f.h.render().sendDice({...dice,modifier:3}),replacement=f.b.requests[2]
+  assert.notEqual(replacement.args.p_client_request_id,original.args.p_client_request_id)
+  replacement.resolve({data:confirmedDice(replacement),error:null});assert.equal(await changed,true)
+  const next=f.h.render().sendDice({...dice,modifier:3}),fresh=f.b.requests[3]
+  assert.notEqual(fresh.args.p_client_request_id,replacement.args.p_client_request_id)
+  fresh.resolve({data:confirmedDice(fresh),error:null});assert.equal(await next,true)
+  assert.equal(f.h.render().text,'Entwurf bleibt')
+  f.h.cleanup()
+})
+
+test('quick dice count and type changes after ambiguous failures create new request IDs',async()=>{
+  for(const changedDice of [
+    {diceCount:4,diceSides:6,modifier:0},
+    {diceCount:1,diceSides:20,modifier:0},
+  ]) {
+    const f=sendSetup()
+    const first=f.h.render().sendDice({diceCount:3,diceSides:6,modifier:0}),original=f.b.requests[0]
+    original.reject(Error('connection lost'));assert.equal(await first,false)
+    const changed=f.h.render().sendDice(changedDice),replacement=f.b.requests[1]
+    assert.notEqual(replacement.args.p_client_request_id,original.args.p_client_request_id)
+    replacement.resolve({data:confirmedDice(replacement),error:null});assert.equal(await changed,true)
+    f.h.cleanup()
+  }
+})
+
+test('quick dice retries semantically equal plain and explicit positive modifiers with one request ID',async()=>{
+  const f=sendSetup()
+  const first=f.h.render().sendDice({diceCount:3,diceSides:6,modifier:Number('+5')}),original=f.b.requests[0]
+  original.reject(Error('connection lost'));assert.equal(await first,false)
+  const retry=f.h.render().sendDice({diceCount:3,diceSides:6,modifier:Number('5')}),repeated=f.b.requests[1]
+  assert.equal(repeated.args.p_client_request_id,original.args.p_client_request_id)
+  repeated.resolve({data:confirmedDice(repeated),error:null});assert.equal(await retry,true)
+  f.h.cleanup()
+})
+
+test('quick dice blocks invalid structured values and duplicate submits',async()=>{
+  const f=sendSetup()
+  for(const dice of [
+    {diceCount:0,diceSides:6,modifier:0},{diceCount:51,diceSides:6,modifier:0},
+    {diceCount:1,diceSides:1,modifier:0},{diceCount:1,diceSides:1001,modifier:0},
+    {diceCount:1,diceSides:6,modifier:10000},{diceCount:1,diceSides:6,modifier:-10000},
+    {diceCount:1,diceSides:6,modifier:1.5},
+  ]) assert.equal(await f.h.render().sendDice(dice),false)
+  assert.equal(f.b.requests.length,0)
+  const first=f.h.render().sendDice({diceCount:2,diceSides:6,modifier:0})
+  assert.equal(await f.h.render().sendDice({diceCount:2,diceSides:6,modifier:0}),false)
+  assert.equal(f.b.requests.length,1)
+  f.b.requests[0].resolve({data:confirmedDice(f.b.requests[0]),error:null});assert.equal(await first,true)
+  const next=f.h.render().sendDice({diceCount:2,diceSides:6,modifier:0})
+  assert.equal(f.b.requests.length,2)
+  f.b.requests[1].resolve({data:confirmedDice(f.b.requests[1]),error:null});assert.equal(await next,true)
+  f.h.cleanup()
+})
+
+test('quick dice shares player, GM character and GM narration identity',async()=>{
+  const player=sendSetup()
+  let pending=player.h.render().sendDice({diceCount:1,diceSides:20,modifier:0})
+  assert.equal(player.b.requests[0].args.p_expected_active_character_id,other)
+  player.b.requests[0].resolve({data:confirmedDice(player.b.requests[0]),error:null});await pending;player.h.cleanup()
+
+  const gm=gmSenderSetup()
+  pending=gm.render().composer.sendDice({diceCount:1,diceSides:20,modifier:0})
+  let request=gm.b.requests[0]
+  assert.equal(request.args.p_expected_active_character_id,other)
+  request.resolve({data:confirmedDice(request),error:null});await pending
+  canonicalSpeaker(gm,null)
+  pending=gm.render().composer.sendDice({diceCount:1,diceSides:20,modifier:0})
+  request=gm.b.requests.at(-1)
+  assert.equal(request.args.p_expected_active_character_id,null)
+  request.resolve({data:confirmedDice(request,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),error:null})
+  assert.equal(await pending,true);gm.h.cleanup()
 })

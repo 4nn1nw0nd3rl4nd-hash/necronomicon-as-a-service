@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { useRoundMessages } from '../hooks/useRoundMessages'
 import type { useSendRoundMessage } from '../hooks/useSendRoundMessage'
-import { isDiceCommand } from '../lib/parseDiceCommand'
+import { GENERIC_QUICK_DICE_SIDES, isDiceCommand } from '../lib/parseDiceCommand'
 import { formatDiceExpression, isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
 
 type PlayChatPanelProps = {
@@ -23,6 +23,83 @@ type PlayChatPanelProps = {
   onRead: (seq: number) => void
 }
 const timeFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' })
+
+type QuickDiceSelection = { diceCount: number; diceSides: number | null; modifierText: string }
+const emptyQuickDice: QuickDiceSelection = { diceCount: 0, diceSides: null, modifierText: '0' }
+
+function parseQuickDiceModifier(value: string): number | null {
+  const normalized = value.trim()
+  if (normalized === '') return 0
+  if (!/^[+-]?[0-9]+$/.test(normalized)) return null
+  const modifier = Number(normalized)
+  return Number.isInteger(modifier) && modifier >= -9999 && modifier <= 9999 ? modifier : null
+}
+
+export function QuickDiceControls({ composer, disabledReason }: {
+  composer: ReturnType<typeof useSendRoundMessage>
+  disabledReason: string | null
+}) {
+  const [selection, setSelection] = useState<QuickDiceSelection>(emptyQuickDice)
+  const modifier = parseQuickDiceModifier(selection.modifierText)
+  const hasDice = selection.diceSides !== null && selection.diceCount >= 1 && selection.diceCount <= 50
+  const controlsDisabled = Boolean(disabledReason) || composer.isSending
+  const canRoll = hasDice && modifier !== null && !controlsDisabled
+  const preview = hasDice && modifier !== null
+    ? formatDiceExpression({ dice_count: selection.diceCount, dice_sides: selection.diceSides!, modifier })
+    : hasDice ? 'Modifier ungültig' : 'Noch kein Würfel ausgewählt'
+
+  const selectDice = (diceSides: number) => {
+    if (controlsDisabled) return
+    setSelection(current => current.diceSides === diceSides
+      ? { ...current, diceCount: Math.min(50, current.diceCount + 1) }
+      : { ...current, diceCount: 1, diceSides })
+  }
+  const changeCount = (change: -1 | 1) => {
+    if (controlsDisabled || !hasDice) return
+    setSelection(current => {
+      const diceCount = Math.max(0, Math.min(50, current.diceCount + change))
+      return diceCount === 0 ? { ...current, diceCount: 0, diceSides: null } : { ...current, diceCount }
+    })
+  }
+  const roll = () => {
+    if (!canRoll || selection.diceSides === null || modifier === null) return
+    composer.sendDice({ diceCount: selection.diceCount, diceSides: selection.diceSides, modifier })
+  }
+
+  return <section className="play-chat-quick-dice" aria-labelledby="play-chat-quick-dice-title">
+    <div className="play-chat-quick-dice-heading">
+      <h3 id="play-chat-quick-dice-title">Schnellwürfel</h3>
+      <button className="play-chat-quick-reset" type="button"
+        disabled={controlsDisabled || (!hasDice && selection.modifierText === '0')}
+        onClick={() => setSelection(emptyQuickDice)}>Schnellwürfel zurücksetzen</button>
+    </div>
+    <div className="play-chat-quick-types" aria-label="Würfeltyp auswählen">
+      {GENERIC_QUICK_DICE_SIDES.map(diceSides => <button key={diceSides} type="button"
+        className="play-chat-quick-type" aria-label={`d${diceSides} hinzufügen`}
+        aria-pressed={selection.diceSides === diceSides}
+        disabled={controlsDisabled || (selection.diceSides === diceSides && selection.diceCount >= 50)}
+        onClick={() => selectDice(diceSides)}>d{diceSides}</button>)}
+    </div>
+    <div className="play-chat-quick-build">
+      <div className="play-chat-quick-count">
+        <button type="button" aria-label="Anzahl verringern" disabled={controlsDisabled || !hasDice}
+          onClick={() => changeCount(-1)}>−</button>
+        <output aria-live="polite">{preview}</output>
+        <button type="button" aria-label="Anzahl erhöhen"
+          disabled={controlsDisabled || !hasDice || selection.diceCount >= 50}
+          onClick={() => changeCount(1)}>+</button>
+      </div>
+      <label className="play-chat-quick-modifier" htmlFor="play-chat-quick-modifier">
+        Modifier
+        <input id="play-chat-quick-modifier" type="text" inputMode="numeric" pattern="[+-]?[0-9]*"
+          value={selection.modifierText} disabled={controlsDisabled} aria-invalid={modifier === null}
+          onChange={event => setSelection(current => ({ ...current, modifierText: event.target.value }))} />
+      </label>
+      <button className="play-button play-chat-quick-roll" type="button" disabled={!canRoll} onClick={roll}>Würfeln</button>
+    </div>
+    {modifier === null && <p className="play-chat-quick-error" role="alert">Modifier muss eine ganze Zahl zwischen −9999 und +9999 sein.</p>}
+  </section>
+}
 
 function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledReason, speakerName, speakerSelection, unreadCount, onRead }: PlayChatPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -139,6 +216,7 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
       {unreadCount > 0 && <button className="play-button play-chat-new" type="button" onClick={jumpToLatest}>
         Neue Nachrichten ({unreadCount}) ↓
       </button>}
+      <QuickDiceControls composer={composer} disabledReason={disabledReason} />
       <details className="play-chat-help">
         <summary>Chat &amp; Würfelbefehle</summary>
         <div className="play-chat-help-content">

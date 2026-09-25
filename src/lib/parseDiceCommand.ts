@@ -4,6 +4,14 @@ export type DiceCommand = {
   modifier: number
 }
 
+export const GENERIC_QUICK_DICE_SIDES = [4, 6, 8, 10, 12, 20, 100] as const
+
+export function isValidDiceCommand(dice: DiceCommand): boolean {
+  return Number.isInteger(dice.diceCount) && dice.diceCount >= 1 && dice.diceCount <= 50
+    && Number.isInteger(dice.diceSides) && dice.diceSides >= 2 && dice.diceSides <= 1000
+    && Number.isInteger(dice.modifier) && dice.modifier >= -9999 && dice.modifier <= 9999
+}
+
 export function isDiceCommand(text: string): boolean {
   return /^\/r(?:\s|$)/.test(text.trimStart())
 }
@@ -18,9 +26,7 @@ export function parseDiceCommand(text: string): DiceCommand | null {
   const diceSides = Number(match[2])
   const magnitude = match[4] === undefined ? 0 : Number(match[4])
   const modifier = match[3] === '-' ? -magnitude : magnitude
-  if (!Number.isInteger(diceCount) || diceCount < 1 || diceCount > 50
-    || !Number.isInteger(diceSides) || diceSides < 2 || diceSides > 1000
-    || !Number.isInteger(modifier) || modifier < -9999 || modifier > 9999) return null
+  if (!isValidDiceCommand({ diceCount, diceSides, modifier })) return null
 
   return { diceCount, diceSides, modifier }
 }
