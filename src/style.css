@@ -298,6 +298,69 @@ button {
   font-size: 0.9rem;
 }
 
+.play-chat-dice-details {
+  min-width: 0;
+  margin-top: var(--space-xs);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.play-chat-dice-details summary {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: baseline;
+  min-width: 0;
+  list-style: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.play-chat-dice-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.play-chat-dice-details summary::before {
+  flex: 0 0 auto;
+  content: '▸';
+  color: var(--color-text-muted);
+}
+
+.play-chat-dice-details[open] summary::before {
+  content: '▾';
+}
+
+.play-chat-dice-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.play-chat-dice-details dl {
+  display: grid;
+  gap: var(--space-xs);
+  margin: var(--space-sm) 0 0 1.1rem;
+}
+
+.play-chat-dice-details dl > div {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+
+.play-chat-dice-details dt {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.play-chat-dice-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.play-chat-dice-results {
+  white-space: normal;
+}
+
 .play-chat-kind,
 .play-chat-compose-actions > span {
   color: var(--color-text-muted);

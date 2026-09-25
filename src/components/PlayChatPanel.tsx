@@ -3,6 +3,7 @@ import type { useRoundMessages } from '../hooks/useRoundMessages'
 import type { useSendRoundMessage } from '../hooks/useSendRoundMessage'
 import { GENERIC_QUICK_DICE_SIDES, isDiceCommand } from '../lib/parseDiceCommand'
 import { formatDiceExpression, isValidMessageBody, ROUND_MESSAGE_MAX_LENGTH } from '../types/roundMessage'
+import type { DiceRollDetails } from '../types/roundMessage'
 
 type PlayChatPanelProps = {
   isDesktop: boolean
@@ -23,6 +24,22 @@ type PlayChatPanelProps = {
   onRead: (seq: number) => void
 }
 const timeFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' })
+
+export function DiceRollMessageView({ details }: { details: DiceRollDetails }) {
+  const modifier = details.modifier > 0 ? `+${details.modifier}` : String(details.modifier)
+  return <details className="play-chat-dice-details">
+    <summary>{formatDiceExpression(details)} → {details.total}</summary>
+    <dl>
+      <div>
+        <dt>Würfel:</dt>
+        <dd className="play-chat-dice-results">{details.results.join(' · ')}</dd>
+      </div>
+      <div><dt>Rohsumme:</dt><dd>{details.raw_total}</dd></div>
+      <div><dt>Modifier:</dt><dd>{modifier}</dd></div>
+      <div><dt>Gesamt:</dt><dd>{details.total}</dd></div>
+    </dl>
+  </details>
+}
 
 type QuickDiceSelection = { diceCount: number; diceSides: number | null; modifierText: string }
 const emptyQuickDice: QuickDiceSelection = { diceCount: 0, diceSides: null, modifierText: '0' }
@@ -205,11 +222,11 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
               <strong>{message.speaker_name_snapshot}</strong>
               <time dateTime={message.created_at}>{timeFormat.format(new Date(message.created_at))}</time>
             </div>
-            <p>{message.kind === 'dice_roll'
+            {message.kind === 'dice_roll'
               ? message.dice_roll
-                ? `${formatDiceExpression(message.dice_roll)} → ${message.dice_roll.total}`
-                : 'Würfelergebnis konnte nicht geladen werden.'
-              : message.body}</p>
+                ? <DiceRollMessageView details={message.dice_roll} />
+                : <p>Würfelergebnis konnte nicht geladen werden.</p>
+              : <p>{message.body}</p>}
           </li>)}
         </ol>
       </div>

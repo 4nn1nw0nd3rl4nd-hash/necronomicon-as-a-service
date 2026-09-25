@@ -1835,9 +1835,9 @@ test('chat query preserves visible system-message fields without a client-side r
   h.cleanup()
 })
 
-test('chat renders existing messages unchanged and dice messages with temporary success/error text',()=>{
+test('chat keeps text, system and speaker rendering while valid dice use disclosure and corrupt dice use fallback',()=>{
   const h=harness({}, {document:{body:{style:{overflow:''}}}})
-  const Panel=h.load('src/components/PlayChatPanel.tsx').default
+  const panelModule=h.load('src/components/PlayChatPanel.tsx'),Panel=panelModule.default,View=panelModule.DiceRollMessageView
   const messages=[
     chatMessage(1),
     chatMessage(2,{author_user_id:null,recipient_user_id:user,speaker_kind:'system',
@@ -1845,11 +1845,12 @@ test('chat renders existing messages unchanged and dice messages with temporary 
     chatMessage(3,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),
     diceMessage(4),
     diceMessage(5,{dice_roll:null}),
+    diceMessage(6,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),
   ]
   const tree=h.render(Panel,[{isDesktop:true,isOpen:true,onClose(){},chat:{...emptyChat(),messages},
     composer:emptyComposer(),disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}])
   const rendered=nodes(tree).filter(node=>node.type==='li'&&node.props.className?.includes('play-chat-message'))
-  assert.equal(rendered.length,5)
+  assert.equal(rendered.length,6)
   assert.deepEqual(rendered.map(node=>node.key),messages.map(message=>message.id))
   assert.equal(rendered[0].props.className,'play-chat-message')
   assert.equal(rendered[0].props['data-kind'],'character_message')
@@ -1862,9 +1863,57 @@ test('chat renders existing messages unchanged and dice messages with temporary 
   assert.doesNotMatch(textOf(rendered[1]),/null|undefined/)
   assert.ok(nodes(rendered[1]).some(node=>node.type==='time'))
   assert.equal(rendered[3].props['data-kind'],'dice_roll')
-  assert.match(textOf(rendered[3]),/3d6-2 → 9/)
+  assert.ok(nodes(rendered[3]).some(node=>node.type===View))
   assert.match(textOf(rendered[4]),/Würfelergebnis konnte nicht geladen werden\./)
   assert.doesNotMatch(textOf(rendered[4]),/null|undefined/)
+  assert.equal(nodes(rendered[4]).some(node=>node.type===View||node.type==='details'),false)
+  assert.equal(rendered[5].props['data-speaker'],'game_master')
+  assert.match(textOf(nodes(rendered[5]).find(node=>node.props?.className==='play-chat-message-meta')),/^Spielleitung/)
+  assert.ok(nodes(rendered[3]).some(node=>node.type==='time'))
+  assert.ok(nodes(rendered[5]).some(node=>node.type==='time'))
+  h.cleanup()
+})
+
+test('dice details are natively collapsed and expose stored values in order when opened',()=>{
+  const h=harness({}),View=h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
+  const details={message_id:'message-details',dice_count:3,dice_sides:6,modifier:2,
+    results:[2,6,4],raw_total:12,total:14}
+  const tree=h.render(View,[{details}]),disclosure=nodes(tree).find(node=>node.type==='details')
+  assert.ok(disclosure);assert.equal(disclosure.props.open,undefined,'native details start closed')
+  assert.equal(textOf(nodes(disclosure).find(node=>node.type==='summary')),'3d6+2 → 14')
+  assert.equal(textOf(nodes(disclosure).find(node=>node.props?.className==='play-chat-dice-results')),'2 · 6 · 4')
+  assert.match(textOf(disclosure),/Rohsumme:12/)
+  assert.match(textOf(disclosure),/Modifier:\+2/)
+  assert.match(textOf(disclosure),/Gesamt:14/)
+  assert.equal(nodes(disclosure).some(node=>node.type==='button'||node.type==='form'||node.type==='textarea'),false)
+  disclosure.open=disclosure.props.open===true
+  assert.equal(disclosure.open,false)
+  disclosure.open=!disclosure.open
+  assert.equal(disclosure.open,true,'native disclosure can be opened without React state')
+  h.cleanup()
+})
+
+test('dice details format negative and zero modifiers and render one die cleanly',()=>{
+  const h=harness({}),View=h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
+  for(const [modifier,expected] of [[-2,'-2'],[0,'0']]) {
+    const details={message_id:`message-${modifier}`,dice_count:1,dice_sides:20,modifier,
+      results:[14],raw_total:14,total:14+modifier}
+    const tree=h.render(View,[{details}])
+    assert.equal(textOf(nodes(tree).find(node=>node.type==='summary')),`1d20${modifier === -2 ? '-2' : ''} → ${14+modifier}`)
+    const modifierRow=nodes(tree).find(node=>node.type==='div'&&textOf(nodes(node).find(child=>child.type==='dt'))==='Modifier:')
+    assert.equal(textOf(nodes(modifierRow).find(node=>node.type==='dd')),expected)
+    assert.equal(textOf(nodes(tree).find(node=>node.props?.className==='play-chat-dice-results')),'14')
+    assert.doesNotMatch(textOf(modifierRow),/\+-2|\+0/)
+  }
+  h.cleanup()
+})
+
+test('dice details render every stored result without truncation',()=>{
+  const h=harness({}),View=h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
+  const results=Array.from({length:50},(_,index)=>index%6+1)
+  const tree=h.render(View,[{details:{message_id:'message-many',dice_count:50,dice_sides:6,modifier:0,
+    results,raw_total:173,total:173}}])
+  assert.equal(textOf(nodes(tree).find(node=>node.props?.className==='play-chat-dice-results')),results.join(' · '))
   h.cleanup()
 })
 
