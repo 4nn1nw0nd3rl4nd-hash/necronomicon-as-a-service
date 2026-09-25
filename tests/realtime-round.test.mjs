@@ -1549,7 +1549,7 @@ for(const departed of [false,true]) {
 
 // Play mode: exercise the shell with the existing lifecycle harness.
 const emptyChat=()=>({messages:[],initialLatestSeq:0,isLoading:false,isLoadingOlder:false,hasOlder:false,accessDenied:false,error:null,reload(){},loadOlder(){}})
-const emptyComposer=()=>({text:'',isSending:false,error:null,setText(){},send(){},sendDice(){}})
+const emptyComposer=()=>({text:'',isSending:false,error:null,setText(){},send(){},sendDice(){},sendReroll(){}})
 function playSetup() {
   const b=backend(), clock=browserClock()
   let roundId=round, account=user, desktop=true
@@ -1863,7 +1863,8 @@ test('chat keeps text, system and speaker rendering while valid dice use disclos
   assert.doesNotMatch(textOf(rendered[1]),/null|undefined/)
   assert.ok(nodes(rendered[1]).some(node=>node.type==='time'))
   assert.equal(rendered[3].props['data-kind'],'dice_roll')
-  assert.ok(nodes(rendered[3]).some(node=>node.type===View))
+  const validDiceView=nodes(rendered[3]).find(node=>node.type===View)
+  assert.ok(validDiceView);assert.equal(validDiceView.props.rerollDisabled,false)
   assert.match(textOf(rendered[4]),/Würfelergebnis konnte nicht geladen werden\./)
   assert.doesNotMatch(textOf(rendered[4]),/null|undefined/)
   assert.equal(nodes(rendered[4]).some(node=>node.type===View||node.type==='details'),false)
@@ -1878,18 +1879,23 @@ test('dice details are natively collapsed and expose stored values in order when
   const h=harness({}),View=h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
   const details={message_id:'message-details',dice_count:3,dice_sides:6,modifier:2,
     results:[2,6,4],raw_total:12,total:14}
-  const tree=h.render(View,[{details}]),disclosure=nodes(tree).find(node=>node.type==='details')
+  let rerolls=0
+  const tree=h.render(View,[{details,rerollDisabled:false,onReroll:()=>rerolls++}])
+  const disclosure=nodes(tree).find(node=>node.type==='details')
   assert.ok(disclosure);assert.equal(disclosure.props.open,undefined,'native details start closed')
   assert.equal(textOf(nodes(disclosure).find(node=>node.type==='summary')),'3d6+2 → 14')
   assert.equal(textOf(nodes(disclosure).find(node=>node.props?.className==='play-chat-dice-results')),'2 · 6 · 4')
   assert.match(textOf(disclosure),/Rohsumme:12/)
   assert.match(textOf(disclosure),/Modifier:\+2/)
   assert.match(textOf(disclosure),/Gesamt:14/)
-  assert.equal(nodes(disclosure).some(node=>node.type==='button'||node.type==='form'||node.type==='textarea'),false)
+  const reroll=nodes(disclosure).find(node=>node.type==='button'&&textOf(node)==='↻ Nochmal würfeln')
+  assert.ok(reroll);assert.equal(reroll.props.type,'button');assert.equal(reroll.props.disabled,false)
+  assert.equal(nodes(disclosure).some(node=>node.type==='form'||node.type==='textarea'),false)
   disclosure.open=disclosure.props.open===true
   assert.equal(disclosure.open,false)
   disclosure.open=!disclosure.open
   assert.equal(disclosure.open,true,'native disclosure can be opened without React state')
+  reroll.props.onClick();assert.equal(rerolls,1)
   h.cleanup()
 })
 
@@ -1898,7 +1904,7 @@ test('dice details format negative and zero modifiers and render one die cleanly
   for(const [modifier,expected] of [[-2,'-2'],[0,'0']]) {
     const details={message_id:`message-${modifier}`,dice_count:1,dice_sides:20,modifier,
       results:[14],raw_total:14,total:14+modifier}
-    const tree=h.render(View,[{details}])
+    const tree=h.render(View,[{details,rerollDisabled:false,onReroll(){}}])
     assert.equal(textOf(nodes(tree).find(node=>node.type==='summary')),`1d20${modifier === -2 ? '-2' : ''} → ${14+modifier}`)
     const modifierRow=nodes(tree).find(node=>node.type==='div'&&textOf(nodes(node).find(child=>child.type==='dt'))==='Modifier:')
     assert.equal(textOf(nodes(modifierRow).find(node=>node.type==='dd')),expected)
@@ -1912,9 +1918,68 @@ test('dice details render every stored result without truncation',()=>{
   const h=harness({}),View=h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
   const results=Array.from({length:50},(_,index)=>index%6+1)
   const tree=h.render(View,[{details:{message_id:'message-many',dice_count:50,dice_sides:6,modifier:0,
-    results,raw_total:173,total:173}}])
+    results,raw_total:173,total:173},rerollDisabled:false,onReroll(){}}])
   assert.equal(textOf(nodes(tree).find(node=>node.props?.className==='play-chat-dice-results')),results.join(' · '))
   h.cleanup()
+})
+
+test('reroll action is disclosure-local, uses stored parameters for foreign rolls and is absent from fallback',()=>{
+  let rerolls=0,textSends=0,diceSends=0,draftEdits=0
+  const h=harness({}, {document:{body:{style:{overflow:''}}}})
+  const panelModule=h.load('src/components/PlayChatPanel.tsx'),Panel=panelModule.default,View=panelModule.DiceRollMessageView
+  const foreign=diceMessage(7,{author_user_id:'another-user',character_id:'historical-character',
+    speaker_name_snapshot:'blubb',dice_roll:{message_id:'message-7',dice_count:3,dice_sides:6,modifier:2,
+      results:[2,6,4],raw_total:12,total:14}})
+  const composer={...emptyComposer(),text:'Ich untersuche die Tür',send:()=>textSends++,sendDice:()=>diceSends++,
+    setText:()=>draftEdits++,sendReroll:(source,dice)=>{rerolls++;assert.equal(source,foreign.id)
+      assert.deepEqual({...dice},{diceCount:3,diceSides:6,modifier:2})}}
+  const tree=h.render(Panel,[{isDesktop:true,isOpen:true,onClose(){},chat:{...emptyChat(),messages:[foreign,diceMessage(8,{dice_roll:null})]},
+    composer,disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}])
+  const views=nodes(tree).filter(node=>node.type===View)
+  assert.equal(views.length,1,'corrupt dice fallback has no reroll view')
+  const disclosure=h.render(View,[views[0].props])
+  assert.equal(disclosure.type,'details');assert.equal(disclosure.props.open,undefined)
+  const button=nodes(disclosure).find(node=>node.type==='button'&&textOf(node)==='↻ Nochmal würfeln')
+  assert.ok(button,'reroll is a child of the collapsed native disclosure')
+  button.props.onClick()
+  assert.equal(rerolls,1);assert.equal(textSends,0);assert.equal(diceSends,0);assert.equal(draftEdits,0)
+  assert.equal(composer.text,'Ich untersuche die Tür')
+  h.cleanup()
+})
+
+test('own visible 3d6+2 message rerolls through the shared structured dice send path',async()=>{
+  const sender=sendSetup()
+  sender.h.render().setText('Mein Chatdraft bleibt Text')
+  const ownRoll=diceMessage(9,{author_user_id:user,character_id:other,speaker_name_snapshot:'Astrid',
+    dice_roll:{message_id:'message-9',dice_count:3,dice_sides:6,modifier:2,
+      results:[1,5,3],raw_total:9,total:11}})
+  const ui=harness({}, {document:{body:{style:{overflow:''}}}})
+  const panelModule=ui.load('src/components/PlayChatPanel.tsx'),Panel=panelModule.default,View=panelModule.DiceRollMessageView
+  const panel=ui.render(Panel,[{isDesktop:true,isOpen:true,onClose(){},chat:{...emptyChat(),messages:[ownRoll]},
+    composer:sender.h.render(),disabledReason:null,speakerName:'Astrid',unreadCount:0,onRead(){}}])
+  const view=nodes(panel).find(node=>node.type===View)
+  assert.ok(view,'own visible dice message renders its reroll disclosure')
+  const disclosure=ui.render(View,[view.props])
+  disclosure.open=disclosure.props.open===true
+  assert.equal(disclosure.open,false)
+  disclosure.open=true
+  const button=nodes(disclosure).find(node=>node.type==='button'&&textOf(node)==='↻ Nochmal würfeln')
+  const pending=button.props.onClick(),request=sender.b.requests[0]
+
+  assert.equal(request.rpc,'send_round_dice_roll')
+  assert.deepEqual(Object.keys(request.args).sort(),[
+    'p_client_request_id','p_dice_count','p_dice_sides','p_expected_active_character_id','p_modifier','p_round_id',
+  ])
+  assert.equal(request.args.p_dice_count,3)
+  assert.equal(request.args.p_dice_sides,6)
+  assert.equal(request.args.p_modifier,2)
+  assert.equal(request.args.p_expected_active_character_id,other)
+  assert.equal('p_body' in request.args,false,'reroll does not synthesize a /r command')
+  for(const field of ['results','raw_total','total']) assert.equal(field in request.args,false,field)
+  request.resolve({data:confirmedDice(request),error:null})
+  assert.equal(await pending,true)
+  assert.equal(sender.h.render().text,'Mein Chatdraft bleibt Text')
+  ui.cleanup();sender.h.cleanup()
 })
 
 test('chat uses exactly one INSERT-only channel and closes subscribe/initial race with a trailing authorized delta',async()=>{
@@ -2912,6 +2977,32 @@ test('quick dice UI keeps its selection after send and never edits the chat draf
   f.h.cleanup()
 })
 
+test('reroll leaves prepared quick dice and the chat draft untouched',()=>{
+  const rerolls=[]
+  const f=quickDiceUiSetup()
+  f.composer.sendReroll=(source,dice)=>rerolls.push({source,dice})
+  let tree=f.render()
+  f.button(tree,'d20 hinzufügen').props.onClick();tree=f.render()
+  f.button(tree,'d20 hinzufügen').props.onClick();tree=f.render()
+  nodes(tree).find(node=>node.type==='input').props.onChange({target:{value:'1'}});tree=f.render()
+  assert.equal(textOf(nodes(tree).find(node=>node.type==='output')),'2d20+1')
+
+  const View=f.h.load('src/components/PlayChatPanel.tsx').DiceRollMessageView
+  const details={message_id:'message-template',dice_count:3,dice_sides:6,modifier:2,
+    results:[2,6,4],raw_total:12,total:14}
+  const view=f.h.render(View,[{details,rerollDisabled:false,
+    onReroll:()=>f.composer.sendReroll(details.message_id,{diceCount:3,diceSides:6,modifier:2})}])
+  nodes(view).find(node=>node.type==='button'&&textOf(node)==='↻ Nochmal würfeln').props.onClick()
+
+  tree=f.render()
+  assert.equal(textOf(nodes(tree).find(node=>node.type==='output')),'2d20+1')
+  assert.equal(nodes(tree).find(node=>node.type==='input').props.value,'1')
+  assert.equal(f.composer.text,'Ich öffne die Tür')
+  assert.deepEqual(JSON.parse(JSON.stringify(rerolls)),[{source:'message-template',
+    dice:{diceCount:3,diceSides:6,modifier:2}}])
+  f.h.cleanup()
+})
+
 test('quick dice uses the shared structured RPC path and preserves the chat draft on success and error',async()=>{
   let synced=0
   const f=sendSetup(()=>synced++)
@@ -3014,4 +3105,96 @@ test('quick dice shares player, GM character and GM narration identity',async()=
   assert.equal(request.args.p_expected_active_character_id,null)
   request.resolve({data:confirmedDice(request,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),error:null})
   assert.equal(await pending,true);gm.h.cleanup()
+})
+
+test('reroll uses the shared dice RPC with stored parameters, current identity and isolated draft',async()=>{
+  let synced=0
+  const f=sendSetup(()=>synced++)
+  f.h.render().setText('Ich untersuche die Tür')
+  const pending=f.h.render().sendReroll('foreign-message',{diceCount:3,diceSides:6,modifier:2})
+  const request=f.b.requests[0]
+  assert.equal(request.rpc,'send_round_dice_roll')
+  assert.deepEqual(Object.keys(request.args).sort(),[
+    'p_client_request_id','p_dice_count','p_dice_sides','p_expected_active_character_id','p_modifier','p_round_id',
+  ])
+  assert.equal('sourceMessageId' in request.args,false)
+  assert.deepEqual({...request.args},{p_round_id:round,p_dice_count:3,p_dice_sides:6,p_modifier:2,
+    p_client_request_id:request.args.p_client_request_id,p_expected_active_character_id:other})
+  request.resolve({data:confirmedDice(request),error:null})
+  assert.equal(await pending,true);assert.equal(synced,1)
+  assert.equal(f.h.render().text,'Ich untersuche die Tür')
+  f.h.cleanup()
+})
+
+test('each successful reroll is new while an ambiguous retry of the same source reuses its request ID',async()=>{
+  const f=sendSetup(),dice={diceCount:3,diceSides:6,modifier:2}
+  let pending=f.h.render().sendReroll('message-A',dice),first=f.b.requests[0]
+  first.resolve({data:confirmedDice(first),error:null});assert.equal(await pending,true)
+  pending=f.h.render().sendReroll('message-A',dice)
+  const second=f.b.requests[1]
+  assert.notEqual(second.args.p_client_request_id,first.args.p_client_request_id)
+  second.reject(Error('network lost'));assert.equal(await pending,false)
+  pending=f.h.render().sendReroll('message-A',dice)
+  const retry=f.b.requests[2]
+  assert.equal(retry.args.p_client_request_id,second.args.p_client_request_id)
+  retry.resolve({data:confirmedDice(retry),error:null});assert.equal(await pending,true)
+  f.h.cleanup()
+})
+
+test('reroll source message distinguishes equal dice intents after an ambiguous failure',async()=>{
+  const f=sendSetup(),dice={diceCount:3,diceSides:6,modifier:2}
+  const failed=f.h.render().sendReroll('message-A',dice),original=f.b.requests[0]
+  original.reject(Error('timeout'));assert.equal(await failed,false)
+  const next=f.h.render().sendReroll('message-B',dice),replacement=f.b.requests[1]
+  assert.notEqual(replacement.args.p_client_request_id,original.args.p_client_request_id)
+  assert.equal('sourceMessageId' in replacement.args,false)
+  replacement.resolve({data:confirmedDice(replacement),error:null});assert.equal(await next,true)
+  f.h.cleanup()
+})
+
+test('reroll identity changes replace ambiguous attempts with the current speaker identity',async()=>{
+  const gm=gmSenderSetup(),dice={diceCount:3,diceSides:6,modifier:2}
+  const failed=gm.render().composer.sendReroll('message-A',dice),original=gm.b.requests[0]
+  assert.equal(original.args.p_expected_active_character_id,other)
+  original.reject(Error('timeout'));assert.equal(await failed,false)
+
+  canonicalSpeaker(gm,null)
+  const retried=gm.render().composer.sendReroll('message-A',dice),narration=gm.b.requests[1]
+  assert.equal(narration.args.p_expected_active_character_id,null)
+  assert.notEqual(narration.args.p_client_request_id,original.args.p_client_request_id)
+  narration.resolve({data:confirmedDice(narration,{speaker_kind:'game_master',speaker_name_snapshot:'Spielleitung',character_id:null}),error:null})
+  assert.equal(await retried,true);gm.h.cleanup()
+})
+
+test('reroll keeps ambiguous contract failures retryable and releases definitive rejections',async()=>{
+  const f=sendSetup(),dice={diceCount:2,diceSides:10,modifier:-2}
+  f.h.render().setText('Draft bleibt auch bei Fehlern')
+  let pending=f.h.render().sendReroll('message-A',dice),contractFailure=f.b.requests[0]
+  contractFailure.resolve({data:chatMessage(101,{client_request_id:contractFailure.args.p_client_request_id}),error:null})
+  assert.equal(await pending,false);assert.equal(f.h.render().text,'Draft bleibt auch bei Fehlern')
+  pending=f.h.render().sendReroll('message-A',dice)
+  const contractRetry=f.b.requests[1]
+  assert.equal(contractRetry.args.p_client_request_id,contractFailure.args.p_client_request_id)
+  contractRetry.resolve({data:null,error:{message:'DICE_INVALID_PARAMETERS'}});assert.equal(await pending,false)
+  assert.equal(f.h.render().text,'Draft bleibt auch bei Fehlern')
+  pending=f.h.render().sendReroll('message-A',dice)
+  const afterRejection=f.b.requests[2]
+  assert.notEqual(afterRejection.args.p_client_request_id,contractRetry.args.p_client_request_id)
+  afterRejection.resolve({data:confirmedDice(afterRejection),error:null});assert.equal(await pending,true)
+  f.h.cleanup()
+})
+
+test('reroll blocks duplicate submits, shares busy state and allows another click after completion',async()=>{
+  const f=sendSetup(),dice={diceCount:1,diceSides:20,modifier:0}
+  const first=f.h.render().sendReroll('message-A',dice)
+  assert.equal(f.h.render().isSending,true)
+  assert.equal(await f.h.render().sendReroll('message-A',dice),false)
+  assert.equal(await f.h.render().sendDice(dice),false)
+  assert.equal(f.b.requests.length,1)
+  f.b.requests[0].resolve({data:confirmedDice(f.b.requests[0]),error:null});assert.equal(await first,true)
+  const next=f.h.render().sendReroll('message-A',dice)
+  assert.equal(f.b.requests.length,2)
+  assert.notEqual(f.b.requests[1].args.p_client_request_id,f.b.requests[0].args.p_client_request_id)
+  f.b.requests[1].resolve({data:confirmedDice(f.b.requests[1]),error:null});assert.equal(await next,true)
+  f.h.cleanup()
 })

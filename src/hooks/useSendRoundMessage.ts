@@ -24,7 +24,8 @@ const additionalDefinitiveDiceErrors = new Set([
   'CHAT_REQUEST_CONFLICT', 'DICE_INVALID_PARAMETERS', 'DICE_STORED_ROLL_INCOMPLETE',
 ])
 type Attempt = {
-  source: 'composer' | 'quickDice'
+  source: 'composer' | 'quickDice' | 'reroll'
+  sourceMessageId: string | null
   body: string | null
   dice: DiceCommand | null
   requestId: string
@@ -79,6 +80,7 @@ export function useSendRoundMessage(
     source: Attempt['source'],
     body: string | null,
     dice: DiceCommand | null,
+    sourceMessageId: string | null = null,
     retryOriginal = false,
   ) => {
     const lifetime = lifetimeRef.current
@@ -90,13 +92,16 @@ export function useSendRoundMessage(
     // explicit retry always retains the original body, identity and request ID.
     const reusable = lifetime.attempt && lifetime.attempt.source === source
       && (retryOriginal || (lifetime.attempt.intentVersion === currentIntent.version
-        && (source === 'quickDice' ? sameDice(lifetime.attempt.dice, dice) : lifetime.attempt.body === body)))
+        && (source === 'composer'
+          ? lifetime.attempt.body === body
+          : sameDice(lifetime.attempt.dice, dice)
+            && (source !== 'reroll' || lifetime.attempt.sourceMessageId === sourceMessageId))))
     const attempt = reusable ? lifetime.attempt! : {
-      source, body, dice: dice ? { ...dice } : null,
+      source, sourceMessageId, body, dice: dice ? { ...dice } : null,
       requestId: crypto.randomUUID(), characterId: expectedCharacterId,
       intentVersion: currentIntent.version,
     }
-    const draft = source === 'quickDice' ? visible.text : attempt.body ?? visible.text
+    const draft = source === 'composer' ? attempt.body ?? visible.text : visible.text
     lifetime.attempt = attempt
     lifetime.controller = new AbortController()
     setState({ scopeKey, text: draft, isSending: true, error: null, pendingAttempt: null })
@@ -125,7 +130,7 @@ export function useSendRoundMessage(
       if (!message || message.client_request_id !== attempt.requestId || message.round_id !== roundId
         || (attempt.dice && (message.kind !== 'dice_roll' || !message.dice_roll))) throw new Error('Unconfirmed send')
       lifetime.attempt = null
-      setState({ scopeKey, text: source === 'quickDice' ? draft : '', isSending: false, error: null, pendingAttempt: null })
+      setState({ scopeKey, text: source === 'composer' ? '' : draft, isSending: false, error: null, pendingAttempt: null })
       // Fetch the whole authorized delta, not just this receipt: other sends may precede it.
       onSent()
       return true
@@ -149,14 +154,18 @@ export function useSendRoundMessage(
         pendingAttempt: lifetime?.attempt ?? null })
       return Promise.resolve(false)
     }
-    return sendIntent('composer', visible.text, dice, retryOriginal)
+    return sendIntent('composer', visible.text, dice, null, retryOriginal)
   }
 
   const sendDice = (dice: DiceCommand) => sendIntent('quickDice', null, dice)
+  const sendReroll = (sourceMessageId: string, dice: DiceCommand) => {
+    if (!sourceMessageId) return Promise.resolve(false)
+    return sendIntent('reroll', null, dice, sourceMessageId)
+  }
 
   return {
     text: visible.text, isSending: visible.isSending, error: visible.error, setText,
-    send: () => send(), sendDice, retry: () => send(true),
+    send: () => send(), sendDice, sendReroll, retry: () => send(true),
     hasDifferentPendingAttempt: Boolean(visible.pendingAttempt?.source === 'composer'
       && visible.pendingAttempt.intentVersion !== currentIntent.version),
   }

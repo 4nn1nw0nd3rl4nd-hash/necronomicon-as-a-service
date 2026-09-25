@@ -25,7 +25,11 @@ type PlayChatPanelProps = {
 }
 const timeFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' })
 
-export function DiceRollMessageView({ details }: { details: DiceRollDetails }) {
+export function DiceRollMessageView({ details, rerollDisabled, onReroll }: {
+  details: DiceRollDetails
+  rerollDisabled: boolean
+  onReroll: () => void
+}) {
   const modifier = details.modifier > 0 ? `+${details.modifier}` : String(details.modifier)
   return <details className="play-chat-dice-details">
     <summary>{formatDiceExpression(details)} → {details.total}</summary>
@@ -38,6 +42,9 @@ export function DiceRollMessageView({ details }: { details: DiceRollDetails }) {
       <div><dt>Modifier:</dt><dd>{modifier}</dd></div>
       <div><dt>Gesamt:</dt><dd>{details.total}</dd></div>
     </dl>
+    <button className="play-chat-dice-reroll" type="button" disabled={rerollDisabled} onClick={onReroll}>
+      ↻ Nochmal würfeln
+    </button>
   </details>
 }
 
@@ -224,7 +231,13 @@ function PlayChatPanel({ isDesktop, isOpen, onClose, chat, composer, disabledRea
             </div>
             {message.kind === 'dice_roll'
               ? message.dice_roll
-                ? <DiceRollMessageView details={message.dice_roll} />
+                ? <DiceRollMessageView details={message.dice_roll}
+                  rerollDisabled={Boolean(disabledReason) || composer.isSending}
+                  onReroll={() => composer.sendReroll(message.id, {
+                    diceCount: message.dice_roll!.dice_count,
+                    diceSides: message.dice_roll!.dice_sides,
+                    modifier: message.dice_roll!.modifier,
+                  })} />
                 : <p>Würfelergebnis konnte nicht geladen werden.</p>
               : <p>{message.body}</p>}
           </li>)}
